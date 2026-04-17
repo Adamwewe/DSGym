@@ -4,13 +4,15 @@ Bio dataset loader for single-cell transcriptomics tasks.
 
 import os
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 from ..base import BaseDataset
 from ..registry import register_dataset
 from ..utils import apply_limit_and_start, validate_file_exists, create_standard_task, construct_data_paths
 from ..prompts import SYSTEM_PROMPT
 from dsgym.datasets.config import get_task_path, RAW_DATA_DIR
+
+from dsgym.datasets.dag import ImplementationDAG, ReasoningDAG
 
 
 DSBIO_INSTRUCTIONS = """
@@ -94,8 +96,15 @@ class DSBioDataset(BaseDataset):
             List of dataset samples
         """
         # Determine file path based on split
+        # The dataset ships as a single file; "dsbio.json" is the hard split.
         if split == "hard":
-            file_path = os.path.join(self.data_dir, "dsbio-hard.json")
+            for candidate in ("dsbio-hard.json", "dsbio.json"):
+                candidate_path = os.path.join(self.data_dir, candidate)
+                if os.path.exists(candidate_path):
+                    file_path = candidate_path
+                    break
+            else:
+                file_path = os.path.join(self.data_dir, "dsbio-hard.json")  # will trigger FileNotFoundError below
         elif split == "easy":
             # Easy split not implemented yet
             raise NotImplementedError("Easy split is not implemented yet")
@@ -129,14 +138,18 @@ class DSBioDataset(BaseDataset):
 
             relative_paths = []
             for path in raw_paths:
-                if path.startswith('/data/dsbio/'):
-                    relative_paths.append(path.replace('/data/dsbio/', ''))
+                # Paths in the JSON are Docker-style /data/<subdir>/file paths.
+                # Strip the leading /data/ root so construct_data_paths can
+                # reconstruct both the local absolute path and the Docker virtual
+                # path correctly (e.g. 'bio/file.h5ad').
+                if path.startswith('/data/'):
+                    relative_paths.append(path[len('/data/'):])
                 else:
                     relative_paths.append(path)
-            
+
             data_paths = construct_data_paths(
                 relative_paths=relative_paths,
-                dataset_name='dsbio',
+                dataset_name='',       # subdir is already encoded in relative_path
                 data_root=RAW_DATA_DIR,
                 virtual_data_root=self.virtual_data_root
             )
@@ -214,3 +227,94 @@ class DSBioDataset(BaseDataset):
                 "numeric_tolerance": 0.0
             }
         }
+
+    # ------------------------------------------------------------------
+    # DAG generation
+    # ------------------------------------------------------------------
+
+    def generate_dag(
+        self,
+        sample: Dict[str, Any],
+        dag_type: str = "reasoning",
+        reasoning_dag: Optional[Union["ReasoningDAG", Dict[str, Any]]] = None,
+        model: str = "gpt-4o",
+    ) -> Union["ReasoningDAG", "ImplementationDAG"]:
+        """
+        Generate a reasoning or implementation DAG for a single DSBio sample.
+
+        Uses OpenAI structured outputs to produce a validated DAG grounded in
+        the biological question and context of the sample.
+
+        Args:
+            sample:        A DSBio sample dict (from :meth:`load`).
+            dag_type:      ``"reasoning"`` or ``"implementation"``.
+            reasoning_dag: Required when ``dag_type="implementation"``; the
+                           previously generated :class:`ReasoningDAG` (or
+                           equivalent dict) to use as a mental model.
+            model:         OpenAI model name (default: ``"gpt-4o"``).
+
+        Returns:
+            A validated :class:`ReasoningDAG` or :class:`ImplementationDAG`.
+
+        Example::
+
+            dataset = DSBioDataset()
+            samples = dataset.load(limit=1)
+            reasoning = dataset.generate_dag(samples[0], dag_type="reasoning")
+            impl = dataset.generate_dag(
+                samples[0], dag_type="implementation", reasoning_dag=reasoning
+            )
+        """
+        from dsgym.datasets.dag_generator import (
+            generate_implementation_dag,
+            generate_reasoning_dag,
+        )
+
+        extra = sample.get("extra_info", {})
+        question = extra.get("question", "")
+        context = extra.get("context", "")
+
+        if not question:
+            raise ValueError("Sample must contain a non-empty 'question' in extra_info")
+
+        if dag_type == "reasoning":
+            return generate_reasoning_dag(question, context, model=model)
+
+        if dag_type == "implementation":
+            if reasoning_dag is None:
+                raise ValueError(
+                    "reasoning_dag is required when dag_type='implementation'. "
+                    "Generate a reasoning DAG first with dag_type='reasoning'."
+                )
+            return generate_implementation_dag(question, context, reasoning_dag, model=model)
+
+        raise ValueError(f"Unknown dag_type '{dag_type}'. Choose 'reasoning' or 'implementation'.")
+
+    def generate_dags(
+        self,
+        sample: Dict[str, Any],
+        model: str = "gpt-4o",
+    ) -> Dict[str, Any]:
+        """
+        Convenience method: generate both reasoning and implementation DAGs
+        for a single DSBio sample in one call.
+
+        Args:
+            sample: A DSBio sample dict (from :meth:`load`).
+            model:  OpenAI model name (default: ``"gpt-4o"``).
+
+        Returns:
+            Dict with keys ``"reasoning"`` (:class:`ReasoningDAG`) and
+            ``"implementation"`` (:class:`ImplementationDAG`).
+
+        Example::
+
+            dataset = DSBioDataset()
+            samples = dataset.load(limit=1)
+            dags = dataset.generate_dags(samples[0])
+            print(dags["reasoning"].model_dump_json(indent=2))
+            print(dags["implementation"].model_dump_json(indent=2))
+        """
+        from dsgym.datasets.dag_generator import generate_dags_for_sample
+
+        return generate_dags_for_sample(sample, model=model)

@@ -22,6 +22,10 @@ DSGym/
 ├── dsgym/                    # Core framework
 │   ├── agents/              # LLM agents and backends
 │   ├── datasets/            # Dataset loaders and prompts
+│   │   ├── dag.py           # ReasoningDAG & ImplementationDAG Pydantic schemas
+│   │   ├── dag_generator.py # OpenAI structured-output DAG generation
+│   │   ├── loaders/         # Per-dataset loaders (DSBio, QRData, …)
+│   │   └── prompts/         # System prompts + DAG prompt builders
 │   ├── eval/                # Evaluation system and metrics
 │   ├── synth/               # Synthetic data generation and trajectory tools
 │   ├── train/               # Model training and fine-tuning (coming soon)
@@ -128,6 +132,10 @@ python evaluate.py \
     --output-dir ./results/dsbio_test
 ```
 
+> **Note:** DSBio requires the bio Docker environment (`executor-bio`). Raw `.h5ad`
+> data files must be placed in `data/data/bio/` — they are automatically mounted
+> into containers at `/data/bio/` at runtime.
+
 #### QRData
 ```bash
 cd examples
@@ -192,6 +200,86 @@ trajectory_results/
 - **DSPredict**: Competition integration and submission validation
 
 All datasets support trajectory generation for synthetic data creation and pass@k evaluation.
+
+## DAG Generation for DSBio
+
+DSBio tasks include structured DAG generation support powered by OpenAI structured
+outputs. Given any loaded DSBio sample, the framework can produce:
+
+- **ReasoningDAG** — abstract analytical steps a biologist should reason through
+  *before* implementation (QC strategy, normalization choice, clustering approach, …)
+- **ImplementationDAG** — concrete executable steps derived from the reasoning DAG,
+  each node annotated with `test_type` (`deterministic` / `heuristic`) and a
+  `function_id` placeholder
+
+Both graphs are validated as proper directed acyclic graphs (topological order
+enforced, no cycles, no duplicate node ids).
+
+### Task types
+
+`DSBioTaskType` covers the single-cell transcriptomics workflow:
+
+| value | meaning |
+|-------|---------|
+| `data_exploration` | Initial data loading & shape inspection |
+| `quality_control` | Per-cell / per-gene QC metrics |
+| `qc_validation` | Threshold selection & cell filtering |
+| `preprocessing` | Normalisation, log-transform, HVG selection |
+| `dimensionality_reduction` | PCA, UMAP, t-SNE |
+| `clustering` | Leiden / Louvain / k-means clustering |
+| `differential_expression` | DEG analysis |
+| `pathway_analysis` | GSEA, pathway enrichment |
+| `cell_type_annotation` | Marker-based cell type labelling |
+| `statistical_analysis` | Statistical tests & correlation |
+| `result_validation` | Sanity checks on final outputs |
+
+### Quickstart
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dsbio")
+samples = dataset.load(limit=1)
+
+# Generate both DAGs in one call
+dags = dataset.generate_dags(samples[0], model="gpt-4o")
+
+print(dags["reasoning"].model_dump_json(indent=2))
+print(dags["implementation"].model_dump_json(indent=2))
+```
+
+Or generate them separately (e.g. to inspect the reasoning DAG first):
+
+```python
+reasoning = dataset.generate_dag(samples[0], dag_type="reasoning", model="gpt-4o")
+impl      = dataset.generate_dag(
+    samples[0],
+    dag_type="implementation",
+    reasoning_dag=reasoning,
+    model="gpt-4o",
+)
+```
+
+You can also call the generator functions directly without a dataset instance:
+
+```python
+from dsgym.datasets.dag_generator import generate_reasoning_dag, generate_implementation_dag
+
+reasoning = generate_reasoning_dag(question, context, model="gpt-4o")
+impl      = generate_implementation_dag(question, context, reasoning, model="gpt-4o")
+```
+
+### Relevant files
+
+| File | Purpose |
+|------|---------|
+| `dsgym/datasets/dag.py` | `ReasoningDAG`, `ImplementationDAG`, `DSBioTaskType`, shared cycle-detection |
+| `dsgym/datasets/dag_generator.py` | `generate_reasoning_dag`, `generate_implementation_dag`, `generate_dags_for_sample` |
+| `dsgym/datasets/prompts/dag_prompts.py` | System prompts, reference examples, `build_reasoning_prompt` / `build_implementation_prompt` |
+| `dsgym/datasets/loaders/dsbio.py` | `DSBioDataset.generate_dag()` / `.generate_dags()` methods |
+
+> **Requires** `OPENAI_API_KEY` and the `openai` package (already listed in
+> `pyproject.toml` dependencies).
 
 ## Key Innovations
 

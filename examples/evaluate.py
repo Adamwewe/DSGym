@@ -184,6 +184,8 @@ def load_dataset(args):
         dataset_config["split"] = split
         dataset_config["virtual_data_root"] = "/data"
         load_config["split"] = split
+    elif dataset_name == "dsbio":
+        dataset_config["virtual_data_root"] = "/data"
     
     dataset = DatasetRegistry.load(dataset_name, **dataset_config)
     tasks = dataset.load(**load_config)
@@ -304,7 +306,7 @@ def main():
     
     # Get dataset configuration
     dataset_config = DATASET_CONFIG[args.dataset]
-    
+
     print(f"🚀 Starting {args.dataset.upper()} Evaluation with DSGym")
     print(f"Model: {args.model}")
     print(f"Backend: {args.backend}")

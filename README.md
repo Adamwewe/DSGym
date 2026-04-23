@@ -68,7 +68,7 @@ sudo docker compose -f docker-compose.yml down
 # Bio-specific DS env
 python generate_compose.py -n 64 --types "executor-bio:64" -m ../data/data --output docker-compose-bio.yml -c container_config_bio.json
 
-sudo docker build -t executor-bio ./container_images/bio_image
+sudo docker build -t executor-bio ./container_images/dsbio_image
 sudo docker build -t manager-prebuilt ./manager
 sudo docker compose -f docker-compose-bio.yml up -d --build
 

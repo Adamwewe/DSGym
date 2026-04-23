@@ -8,10 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install -U pip setuptools wheel
+# setuptools>=82 drops pkg_resources; pybedtools 0.9.1 setup.py imports pkg_resources
+RUN pip install -U pip && \
+    printf '%s\n' 'setuptools>=69,<82' > /tmp/constraints.txt && \
+    pip install --no-cache-dir -c /tmp/constraints.txt 'setuptools>=69,<82' wheel
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN grep -vE '^[[:space:]]*pybedtools' /tmp/requirements.txt > /tmp/requirements-without-pybedtools.txt && \
+    pip install --no-cache-dir -c /tmp/constraints.txt -r /tmp/requirements-without-pybedtools.txt && \
+    pip install --no-cache-dir -c /tmp/constraints.txt 'setuptools>=69,<82' wheel && \
+    pip install --no-cache-dir -c /tmp/constraints.txt --no-build-isolation 'pybedtools==0.9.1'
 
 # Copy the application code
 COPY . /app

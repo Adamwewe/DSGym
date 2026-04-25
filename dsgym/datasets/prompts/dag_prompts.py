@@ -170,7 +170,9 @@ Rules:
 - task_type must be one of: {_ALLOWED_TASK_TYPES}
 - Each node metadata must include:
     - test_type: "deterministic" or "heuristic"
-    - function_id: a placeholder string for the function (use "PLACEHOLDER" if unknown)
+    - function_id: a valid Python snake_case function name derived from the node label
+      (e.g., "load_anndata_and_inspect_shape", "compute_per_cell_qc_metrics").
+      Must be a valid Python identifier. Never use "PLACEHOLDER".
 - Branching edges should carry a condition field (e.g., "pass", "fail", "imbalanced").
 - Stay close to the reasoning DAG — do NOT deviate from its reasoning steps.
 - The DAG must be topologically sorted (like networkx.DiGraph).

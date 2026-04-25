@@ -207,13 +207,96 @@ DSBio tasks include structured DAG generation support powered by OpenAI structur
 outputs. Given any loaded DSBio sample, the framework can produce:
 
 - **ReasoningDAG** — abstract analytical steps a biologist should reason through
-  *before* implementation (QC strategy, normalization choice, clustering approach, …)
+  *before* implementation (QC strategy, normalisation choice, clustering approach, …)
 - **ImplementationDAG** — concrete executable steps derived from the reasoning DAG,
-  each node annotated with `test_type` (`deterministic` / `heuristic`) and a
-  `function_id` placeholder
+  each node annotated with `test_type` (`deterministic` / `heuristic`) and a valid
+  Python snake_case `function_id`
 
 Both graphs are validated as proper directed acyclic graphs (topological order
 enforced, no cycles, no duplicate node ids).
+
+### How DAGs become agent tools
+
+When DAGs are generated they are injected directly into the sample's prompt in two
+sections that follow the same tool interface as every other dataset in the repo
+(Python code execution via `<python>` tags):
+
+1. **`ANALYSIS PLAN`** — the reasoning DAG rendered as a numbered checklist the
+   agent works through before writing any code.
+2. **`IMPLEMENTATION TOOLS`** — the implementation DAG rendered as Python function
+   stubs with docstrings and an explicit **execution order**, e.g.:
+
+```
+IMPLEMENTATION TOOLS:
+The following Python functions represent each implementation step. Implement and
+call them in sequence using <python> blocks, following the order shown below.
+
+def load_anndata_and_inspect_shape():
+    """Load AnnData object and inspect shape  [test_type: deterministic]"""
+    pass
+
+def compute_per_cell_qc_metrics():
+    """Compute per-cell QC metrics  [test_type: deterministic]"""
+    pass
+
+Execution order: load_anndata_and_inspect_shape → compute_per_cell_qc_metrics → …
+```
+
+The agent implements each stub and calls them in order, treating the DAG nodes as
+the callable tools it must exercise — identical to how other datasets expose their
+analysis steps.
+
+### Inline DAG generation during `load()`
+
+The primary way to use DAGs is to generate them as part of loading:
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dsbio")
+
+# generate_dags=True calls the OpenAI API once per sample and injects the
+# resulting plan + function stubs into every sample's prompt automatically.
+samples = dataset.load(limit=10, generate_dags=True, model="gpt-4o")
+
+# The raw DAG objects are also stored in extra_info for downstream use.
+sample = samples[0]
+reasoning = sample["extra_info"]["reasoning_dag"]
+impl      = sample["extra_info"]["implementation_dag"]
+print(reasoning.model_dump_json(indent=2))
+print(impl.model_dump_json(indent=2))
+```
+
+DAG generation failures (e.g. API errors) are caught per-sample and logged as
+warnings; the sample is still returned without a DAG section so evaluation can
+continue uninterrupted.
+
+### Post-hoc DAG generation
+
+You can also generate DAGs after loading without re-running `load()`:
+
+```python
+# Both DAGs in one call
+dags = dataset.generate_dags(samples[0], model="gpt-4o")
+
+# Or separately, to inspect the reasoning DAG first
+reasoning = dataset.generate_dag(samples[0], dag_type="reasoning", model="gpt-4o")
+impl      = dataset.generate_dag(
+    samples[0],
+    dag_type="implementation",
+    reasoning_dag=reasoning,
+    model="gpt-4o",
+)
+```
+
+Or call the generator functions directly without a dataset instance:
+
+```python
+from dsgym.datasets.dag_generator import generate_reasoning_dag, generate_implementation_dag
+
+reasoning = generate_reasoning_dag(question, context, model="gpt-4o")
+impl      = generate_implementation_dag(question, context, reasoning, model="gpt-4o")
+```
 
 ### Task types
 
@@ -233,42 +316,6 @@ enforced, no cycles, no duplicate node ids).
 | `statistical_analysis` | Statistical tests & correlation |
 | `result_validation` | Sanity checks on final outputs |
 
-### Quickstart
-
-```python
-from dsgym.datasets import DatasetRegistry
-
-dataset = DatasetRegistry.load("dsbio")
-samples = dataset.load(limit=1)
-
-# Generate both DAGs in one call
-dags = dataset.generate_dags(samples[0], model="gpt-4o")
-
-print(dags["reasoning"].model_dump_json(indent=2))
-print(dags["implementation"].model_dump_json(indent=2))
-```
-
-Or generate them separately (e.g. to inspect the reasoning DAG first):
-
-```python
-reasoning = dataset.generate_dag(samples[0], dag_type="reasoning", model="gpt-4o")
-impl      = dataset.generate_dag(
-    samples[0],
-    dag_type="implementation",
-    reasoning_dag=reasoning,
-    model="gpt-4o",
-)
-```
-
-You can also call the generator functions directly without a dataset instance:
-
-```python
-from dsgym.datasets.dag_generator import generate_reasoning_dag, generate_implementation_dag
-
-reasoning = generate_reasoning_dag(question, context, model="gpt-4o")
-impl      = generate_implementation_dag(question, context, reasoning, model="gpt-4o")
-```
-
 ### Relevant files
 
 | File | Purpose |
@@ -276,7 +323,7 @@ impl      = generate_implementation_dag(question, context, reasoning, model="gpt
 | `dsgym/datasets/dag.py` | `ReasoningDAG`, `ImplementationDAG`, `DSBioTaskType`, shared cycle-detection |
 | `dsgym/datasets/dag_generator.py` | `generate_reasoning_dag`, `generate_implementation_dag`, `generate_dags_for_sample` |
 | `dsgym/datasets/prompts/dag_prompts.py` | System prompts, reference examples, `build_reasoning_prompt` / `build_implementation_prompt` |
-| `dsgym/datasets/loaders/dsbio.py` | `DSBioDataset.generate_dag()` / `.generate_dags()` methods |
+| `dsgym/datasets/loaders/dsbio.py` | `DSBioDataset.load(generate_dags=…)`, `generate_dag()` / `generate_dags()`, `_format_dag_section()` |
 
 > **Requires** `OPENAI_API_KEY` and the `openai` package (already listed in
 > `pyproject.toml` dependencies).

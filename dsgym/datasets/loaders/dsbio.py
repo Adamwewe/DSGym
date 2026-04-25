@@ -3,6 +3,7 @@ Bio dataset loader for single-cell transcriptomics tasks.
 """
 
 import os
+import re
 import json
 from typing import List, Dict, Any, Optional, Union
 
@@ -27,7 +28,75 @@ DSBIO_INSTRUCTIONS = """
 """
 
 
-def create_dsbio_prompt(question: str, context: str, data_paths: Dict[str, List[str]], metadata: Dict[str, Any]) -> str:
+def _label_to_func_id(label: str) -> str:
+    """Convert a node label to a valid Python snake_case function name."""
+    s = label.lower()
+    s = re.sub(r"[^a-z0-9\s]", "", s)
+    s = re.sub(r"\s+", "_", s.strip())
+    s = re.sub(r"_+", "_", s)
+    return (s[:60] or "step").strip("_")
+
+
+def _format_dag_section(
+    reasoning_dag: Optional["ReasoningDAG"],
+    implementation_dag: Optional["ImplementationDAG"],
+) -> str:
+    """
+    Format reasoning and implementation DAGs into a prompt section.
+
+    The reasoning DAG is shown as a numbered analysis plan.
+    The implementation DAG nodes are rendered as Python function stubs that the
+    agent should implement and call in order — the same tool interface used by
+    other datasets in the repo (Python code execution via <python> tags).
+    """
+    lines: List[str] = []
+
+    if reasoning_dag:
+        lines.append("ANALYSIS PLAN (Reasoning DAG):")
+        lines.append("Before writing any code, reason through these steps in order:")
+        for i, node in enumerate(reasoning_dag.nodes, 1):
+            lines.append(f"  {i}. [{node.task_type.value}] {node.label}")
+        lines.append("")
+
+    if implementation_dag:
+        lines.append("IMPLEMENTATION TOOLS:")
+        lines.append(
+            "The following Python functions represent each implementation step. "
+            "Implement and call them in sequence using <python> blocks, "
+            "following the order shown below."
+        )
+        lines.append("")
+
+        func_names: List[str] = []
+        for node in implementation_dag.nodes:
+            func_id = node.metadata.function_id
+            if not func_id or func_id == "PLACEHOLDER":
+                func_id = _label_to_func_id(node.label)
+            test_type = node.metadata.test_type or "heuristic"
+            lines.append(f"def {func_id}():")
+            lines.append(f'    """{node.label}  [test_type: {test_type}]"""')
+            lines.append("    pass")
+            lines.append("")
+            func_names.append(func_id)
+
+        if func_names:
+            lines.append(
+                "Execution order: "
+                + " → ".join(func_names)
+            )
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def create_dsbio_prompt(
+    question: str,
+    context: str,
+    data_paths: Dict[str, List[str]],
+    metadata: Dict[str, Any],
+    reasoning_dag: Optional["ReasoningDAG"] = None,
+    implementation_dag: Optional["ImplementationDAG"] = None,
+) -> str:
     virtual_paths = data_paths['virtual']
     dataset_locations = '\n'.join(virtual_paths) if virtual_paths else 'No dataset provided'
     
@@ -41,14 +110,18 @@ def create_dsbio_prompt(question: str, context: str, data_paths: Dict[str, List[
         metadata_lines.append(f"ANSWER GUIDELINES: {guidelines}")
     
     metadata_section = '\n'.join(metadata_lines)
-    
+
+    dag_section = ""
+    if reasoning_dag is not None or implementation_dag is not None:
+        dag_section = "\n" + _format_dag_section(reasoning_dag, implementation_dag)
+
     prompt = f"""QUESTION: {question}
 
 {metadata_section}
 
 DATASET LOCATIONS (use full paths):
 {dataset_locations}
-
+{dag_section}
 INSTRUCTIONS:
 {DSBIO_INSTRUCTIONS}
 
@@ -80,6 +153,8 @@ class DSBioDataset(BaseDataset):
         limit: Optional[int] = None,
         start_index: int = 0,
         random_sample: bool = False,
+        generate_dags: bool = True,
+        model: str = "gpt-4o",
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -90,6 +165,12 @@ class DSBioDataset(BaseDataset):
             limit: Maximum number of samples to load
             start_index: Starting index for data selection
             random_sample: If True, randomly sample from dataset
+            generate_dags: If True, generate reasoning and implementation DAGs for each
+                sample during loading. The DAGs are injected into the prompt as an
+                analysis plan and a set of Python function stubs (tools) that the agent
+                should implement and call in sequence — consistent with the tool interface
+                used by other datasets in the repo.
+            model: OpenAI model used for DAG generation (default: "gpt-4o").
             **kwargs: Additional loading parameters
             
         Returns:
@@ -124,6 +205,16 @@ class DSBioDataset(BaseDataset):
         )
 
         samples = []
+
+        # Build a shared OpenAI client once if DAG generation is requested.
+        dag_client = None
+        if generate_dags:
+            from openai import OpenAI
+            from dsgym.datasets.dag_generator import (
+                generate_reasoning_dag,
+                generate_implementation_dag,
+            )
+            dag_client = OpenAI()
         
         # Convert to standard format
         for idx, item in enumerate(raw_data):
@@ -154,12 +245,31 @@ class DSBioDataset(BaseDataset):
                 virtual_data_root=self.virtual_data_root
             )
 
+            # Generate DAGs for this question if requested.
+            reasoning_dag = None
+            implementation_dag = None
+            if generate_dags:
+                try:
+                    reasoning_dag = generate_reasoning_dag(
+                        question, context, model=model, client=dag_client
+                    )
+                    implementation_dag = generate_implementation_dag(
+                        question, context, reasoning_dag, model=model, client=dag_client
+                    )
+                except Exception as exc:
+                    print(
+                        f"⚠️  DAG generation failed for sample {original_index} "
+                        f"({type(exc).__name__}: {exc}). Continuing without DAGs."
+                    )
+
             # Create prompt using dsbio format
             prompt_content = create_dsbio_prompt(
-                question, 
-                context, 
-                data_paths, 
-                metadata
+                question,
+                context,
+                data_paths,
+                metadata,
+                reasoning_dag=reasoning_dag,
+                implementation_dag=implementation_dag,
             )
 
             ground_truth = str(item['answer'])
@@ -173,7 +283,9 @@ class DSBioDataset(BaseDataset):
                 'index': original_index,
                 'source': 'dsbio',
                 'split': split,
-                'id': str(original_index)
+                'id': str(original_index),
+                'reasoning_dag': reasoning_dag.model_dump() if reasoning_dag is not None else None,
+                'implementation_dag': implementation_dag.model_dump() if implementation_dag is not None else None,
             }
             
             # Create standardized sample

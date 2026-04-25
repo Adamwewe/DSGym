@@ -95,8 +95,14 @@ export OPENAI_API_KEY=<your-api-key>
 # or
 export TOGETHER_API_KEY=<your-api-key>
 
-# Evaluate on DSBio
+# Evaluate on DSBio (without DAGs, baseline)
 dsgym eval --model gpt-4o --dataset dsbio --limit 10
+
+# Evaluate on DSBio with DAG-guided prompts
+dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags true
+
+# Evaluate on DSBio with DAGs using a specific DAG model
+dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags true --dag-model gpt-4o-mini
 
 # Evaluate on DAEval
 dsgym eval --model together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput --dataset daeval --backend litellm --limit 10
@@ -124,12 +130,24 @@ Alternatively, use the example scripts for different datasets:
 export TOGETHER_API_KEY=<your-api-key>
 
 cd examples
+
+# Baseline (no DAGs)
 python evaluate.py \
     --dataset dsbio \
     --model together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput \
     --backend litellm \
     --limit 10 \
-    --output-dir ./results/dsbio_test
+    --output-dir ./results/dsbio_baseline
+
+# With DAG-guided prompts (requires OPENAI_API_KEY for DAG generation)
+python evaluate.py \
+    --dataset dsbio \
+    --model together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput \
+    --backend litellm \
+    --limit 10 \
+    --dags true \
+    --dag-model gpt-4o \
+    --output-dir ./results/dsbio_dags
 ```
 
 > **Note:** DSBio requires the bio Docker environment (`executor-bio`). Raw `.h5ad`
@@ -248,7 +266,23 @@ analysis steps.
 
 ### Inline DAG generation during `load()`
 
-The primary way to use DAGs is to generate them as part of loading:
+The primary way to use DAGs is to generate them as part of loading, either via
+the CLI or the Python API.
+
+**CLI flags** (DSBio only):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dags true\|false` | `false` | Enable DAG-guided prompts per sample |
+| `--dag-model MODEL` | `gpt-4o` | OpenAI model used for DAG generation |
+
+```bash
+# Compare with and without DAGs
+dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags false
+dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags true --dag-model gpt-4o-mini
+```
+
+**Python API:**
 
 ```python
 from dsgym.datasets import DatasetRegistry

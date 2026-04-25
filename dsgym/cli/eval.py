@@ -42,6 +42,12 @@ def add_eval_parser(subparsers):
                        help="Dataset to evaluate on")
     parser.add_argument("--limit", type=int, default=None,
                        help="Number of samples to evaluate")
+    parser.add_argument("--dags", type=lambda x: x.lower() not in ("false", "0", "no"),
+                       default=False, metavar="BOOL",
+                       help="Generate reasoning + implementation DAGs per sample for DSBio "
+                            "(requires OPENAI_API_KEY). Accepts true/false (default: false)")
+    parser.add_argument("--dag-model", type=str, default="gpt-4o",
+                       help="OpenAI model used for DAG generation (default: gpt-4o)")
     parser.add_argument("--synthetic-path", type=str, default=None,
                        help="Path to synthetic dataset (optional)")
     
@@ -75,6 +81,8 @@ def run_eval(args) -> int:
     print(f"Backend: {args.backend}")
     print(f"Dataset: {args.dataset}")
     print(f"Samples: {args.limit if args.limit is not None else 'all'}")
+    if args.dataset == "dsbio":
+        print(f"DAG generation: {'enabled (model: ' + args.dag_model + ')' if args.dags else 'disabled'}")
     
     # Set default max_workers based on backend
     if args.max_workers is None:
@@ -138,6 +146,8 @@ def run_eval(args) -> int:
             load_config["split"] = dataset_config["split"]
         elif dataset_name == "dsbio":
             dataset_config["virtual_data_root"] = "/data"
+            load_config["generate_dags"] = args.dags
+            load_config["model"] = args.dag_model
         dataset = DatasetRegistry.load(dataset_name, **dataset_config)
         samples = dataset.load(**load_config)
         print(f"✅ Loaded {len(samples)} samples from {args.dataset}")

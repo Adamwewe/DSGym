@@ -6,6 +6,7 @@ Centralized location for system prompts.
 
 from .system_prompts import (
     SYSTEM_PROMPT,
+    SYSTEM_PROMPT_DAG,
     SYSTEM_PROMPT_DSPREDICT,
     SYSTEM_PROMPT_MLEBENCH_TEMPLATE,
     SYSTEM_PROMPT_DATAMIND,
@@ -21,6 +22,7 @@ from .dag_prompts import (
 
 __all__ = [
     'SYSTEM_PROMPT',
+    'SYSTEM_PROMPT_DAG',
     'SYSTEM_PROMPT_DSPREDICT',
     'SYSTEM_PROMPT_MLEBENCH_TEMPLATE',
     'SYSTEM_PROMPT_DATAMIND',

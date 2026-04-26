@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 from ..base import BaseDataset
 from ..registry import register_dataset
 from ..utils import apply_limit_and_start, validate_file_exists, create_standard_task, construct_data_paths
-from ..prompts import SYSTEM_PROMPT
+from ..prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_DAG
 from dsgym.datasets.config import get_task_path, RAW_DATA_DIR
 
 from dsgym.datasets.dag import ImplementationDAG, ReasoningDAG
@@ -170,7 +170,7 @@ class DSBioDataset(BaseDataset):
                 analysis plan and a set of Python function stubs (tools) that the agent
                 should implement and call in sequence — consistent with the tool interface
                 used by other datasets in the repo.
-            model: OpenAI model used for DAG generation (default: "gpt-4o").
+            model: LiteLLM-compatible model used for DAG generation (default: "gpt-4o").
             **kwargs: Additional loading parameters
             
         Returns:
@@ -206,15 +206,12 @@ class DSBioDataset(BaseDataset):
 
         samples = []
 
-        # Build a shared OpenAI client once if DAG generation is requested.
-        dag_client = None
+        # Import DAG generators once if DAG generation is requested.
         if generate_dags:
-            from openai import OpenAI
             from dsgym.datasets.dag_generator import (
                 generate_reasoning_dag,
                 generate_implementation_dag,
             )
-            dag_client = OpenAI()
         
         # Convert to standard format
         for idx, item in enumerate(raw_data):
@@ -251,10 +248,10 @@ class DSBioDataset(BaseDataset):
             if generate_dags:
                 try:
                     reasoning_dag = generate_reasoning_dag(
-                        question, context, model=model, client=dag_client
+                        question, context, model=model
                     )
                     implementation_dag = generate_implementation_dag(
-                        question, context, reasoning_dag, model=model, client=dag_client
+                        question, context, reasoning_dag, model=model
                     )
                 except Exception as exc:
                     print(
@@ -288,12 +285,15 @@ class DSBioDataset(BaseDataset):
                 'implementation_dag': implementation_dag.model_dump() if implementation_dag is not None else None,
             }
             
+            # Select system prompt: use DAG-aware prompt when DAGs were generated.
+            active_system_prompt = SYSTEM_PROMPT_DAG if generate_dags else SYSTEM_PROMPT
+
             # Create standardized sample
             standard_sample = create_standard_task(
                 prompt_content=prompt_content,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
-                system_prompt=SYSTEM_PROMPT
+                system_prompt=active_system_prompt
             )
             
             samples.append(standard_sample)
@@ -354,7 +354,7 @@ class DSBioDataset(BaseDataset):
         """
         Generate a reasoning or implementation DAG for a single DSBio sample.
 
-        Uses OpenAI structured outputs to produce a validated DAG grounded in
+        Uses litellm to produce a validated DAG grounded in
         the biological question and context of the sample.
 
         Args:
@@ -363,7 +363,7 @@ class DSBioDataset(BaseDataset):
             reasoning_dag: Required when ``dag_type="implementation"``; the
                            previously generated :class:`ReasoningDAG` (or
                            equivalent dict) to use as a mental model.
-            model:         OpenAI model name (default: ``"gpt-4o"``).
+            model:         LiteLLM-compatible model name (default: ``"gpt-4o"``).
 
         Returns:
             A validated :class:`ReasoningDAG` or :class:`ImplementationDAG`.
@@ -413,7 +413,7 @@ class DSBioDataset(BaseDataset):
 
         Args:
             sample: A DSBio sample dict (from :meth:`load`).
-            model:  OpenAI model name (default: ``"gpt-4o"``).
+            model:  LiteLLM-compatible model name (default: ``"gpt-4o"``).
 
         Returns:
             Dict with keys ``"reasoning"`` (:class:`ReasoningDAG`) and

@@ -21,7 +21,6 @@ class BaseAgent(ABC):
         self.backend = backend
         self.model = model
         self.config = kwargs
-    
     @abstractmethod
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """

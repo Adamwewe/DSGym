@@ -37,7 +37,7 @@ class DSBioTaskType(str, Enum):
 # ---------------------------------------------------------------------------
 
 class Edge(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
     source: str = Field(min_length=1)
     target: str = Field(min_length=1)
@@ -51,11 +51,11 @@ class Edge(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ReasoningNodeMetadata(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
 
 class ReasoningNode(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
     id: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
     label: str = Field(min_length=1)
@@ -64,7 +64,7 @@ class ReasoningNode(BaseModel):
 
 
 class ReasoningDAG(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
     graph_id: str = Field(min_length=1)
     nodes: list[ReasoningNode] = Field(min_length=1)
@@ -81,14 +81,14 @@ class ReasoningDAG(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ImplementationNodeMetadata(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
     test_type: Optional[Literal["deterministic", "heuristic"]] = None
     function_id: Optional[str] = None
 
 
 class ImplementationNode(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
     id: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
     label: str = Field(min_length=1)
@@ -97,7 +97,7 @@ class ImplementationNode(BaseModel):
 
 
 class ImplementationDAG(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
 
     graph_id: str = Field(min_length=1)
     nodes: list[ImplementationNode] = Field(min_length=1)

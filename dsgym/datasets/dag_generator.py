@@ -24,6 +24,25 @@ from dsgym.datasets.prompts.dag_prompts import (
 )
 
 
+def _supports_json_object_format(model: str) -> bool:
+    """
+    Return True if the model/provider accepts response_format={"type":"json_object"}.
+
+    litellm's supports_response_schema() covers structured-output (json_schema) but
+    json_object mode has its own compatibility surface.  We use a conservative
+    allow-list: OpenAI and Azure OpenAI GPT models support it; everything else
+    (Anthropic, Together, Mistral, …) relies on the system-prompt instruction alone.
+    """
+    model_lower = model.lower()
+    # OpenAI direct or via litellm "openai/" prefix
+    if model_lower.startswith(("gpt-", "openai/", "o1", "o3", "o4")):
+        return True
+    # Azure OpenAI deployments
+    if model_lower.startswith("azure/"):
+        return True
+    return False
+
+
 def _extract_json(raw: str) -> str:
     """
     Return the bare JSON string from a model response.
@@ -69,14 +88,17 @@ def generate_reasoning_dag(
     """
     system_prompt, user_prompt = build_reasoning_prompt(question, context)
 
-    response = litellm.completion(
+    kwargs: Dict[str, Any] = dict(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        response_format={"type": "json_object"},
     )
+    if _supports_json_object_format(model):
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = litellm.completion(**kwargs)
 
     raw = response.choices[0].message.content
     if not raw:
@@ -112,14 +134,17 @@ def generate_implementation_dag(
         question, context, reasoning_dict
     )
 
-    response = litellm.completion(
+    kwargs: Dict[str, Any] = dict(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        response_format={"type": "json_object"},
     )
+    if _supports_json_object_format(model):
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = litellm.completion(**kwargs)
 
     raw = response.choices[0].message.content
     if not raw:

@@ -113,6 +113,10 @@ def create_parser():
                        help="Maximum model sequence length for vLLM backend (default: 32768)")
     
     # Dataset-specific arguments
+    parser.add_argument("--dags", type=lambda x: x.lower() not in ("false", "0", "no"),
+                       default=False, metavar="BOOL",
+                       help="(DSBio only) Generate reasoning + implementation DAGs per sample "
+                            "(requires OPENAI_API_KEY). Accepts true/false (default: false)")
     parser.add_argument("--split", type=str, default="test",
                        choices=["train", "validation", "test"],
                        help="Dataset split to use (for discoverybench)")
@@ -186,6 +190,7 @@ def load_dataset(args):
         load_config["split"] = split
     elif dataset_name == "dsbio":
         dataset_config["virtual_data_root"] = "/data"
+        load_config["generate_dags"] = args.dags
     
     dataset = DatasetRegistry.load(dataset_name, **dataset_config)
     tasks = dataset.load(**load_config)
@@ -352,12 +357,16 @@ def main():
     )
     
     # Create evaluation config
+    run_name = f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
+    if args.dataset == "dsbio":
+        run_name += "_dags" if args.dags else "_nodags"
     config = EvaluationConfig(
         model_name=args.model,
         backend_type=args.backend,
         dataset_name=args.dataset,
         output_dir=args.output_dir,
-        run_name=f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
+        run_name=run_name,
+        extra_config={"generate_dags": args.dags} if args.dataset == "dsbio" else {}
     )
     
     # Run evaluation

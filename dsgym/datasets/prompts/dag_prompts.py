@@ -143,7 +143,7 @@ solved BEFORE any implementation.
 Convert the user's biological question into a directed acyclic graph (DAG) of reasoning steps.
 
 Rules:
-- Return ONLY data matching the required schema. No markdown, no prose outside the schema.
+- Return ONLY a valid JSON object matching the required schema. No markdown, no prose outside the JSON.
 - The graph must be directed and acyclic (a valid topological ordering must exist).
 - Every node represents ONE reasoning or validation step — NOT a code step.
 - No duplicate node ids.
@@ -161,7 +161,7 @@ based on a reasoning DAG. Do NOT execute — only plan in detail.
 Convert the reasoning DAG into an implementation DAG of concrete, executable steps.
 
 Rules:
-- Return ONLY data matching the required schema. No markdown, no prose outside the schema.
+- Return ONLY a valid JSON object matching the required schema. No markdown, no prose outside the JSON.
 - The graph must be directed and acyclic (a valid topological ordering must exist).
 - Every node represents ONE concrete implementation step.
 - No duplicate node ids.

@@ -166,6 +166,8 @@ def run_eval(args) -> int:
     
     # Create evaluation config
     run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
+    if args.dataset == "dsbio" and not args.run_name:
+        run_name += "_dags" if args.dags else "_nodags"
     config = EvaluationConfig(
         model_name=args.model,
         backend_type=args.backend,
@@ -174,7 +176,8 @@ def run_eval(args) -> int:
         run_name=run_name,
         max_turns=args.max_turns,
         temperature=args.temperature,
-        max_workers=args.max_workers
+        max_workers=args.max_workers,
+        extra_config={"generate_dags": args.dags} if args.dataset == "dsbio" else {}
     )
     
     # Run evaluation

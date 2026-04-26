@@ -154,6 +154,35 @@ python evaluate.py \
 > data files must be placed in `data/data/bio/` — they are automatically mounted
 > into containers at `/data/bio/` at runtime.
 
+#### Downloading DSBio data files
+
+DSBio tasks reference 25 data files (`.h5ad`, compressed matrices, metadata) sourced
+from CellxGENE, Zenodo, and EBI BioStudies. A download script is provided at the
+repo root to fetch all of them:
+
+```bash
+# Run from the DSGym repo root
+bash download_bio_data.sh
+```
+
+The script will:
+- Create `data/data/bio/` if it does not exist
+- Download 24 of the 25 required files (~6 GB total) from their public sources
+- **Skip files that are already present** (safe to re-run / resume after interruption)
+- Print the final file listing with sizes when done
+
+| Source | Files |
+|--------|-------|
+| [CellxGENE](https://cellxgene.cziscience.com) | `Colon.h5ad`, `Ileum.h5ad`, `Rectum.h5ad`, `Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad`, `scRNA-seq_of_adult_gamma_delta_T_cells.h5ad`, `scRNA-seq_of_vascular_tissue.h5ad`, `slide-seqV2_analysis_of_aorta.h5ad`, `slide-seqV2_analysis_of_right_coronary_artery.h5ad`, `snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad` |
+| [Zenodo 259661](https://zenodo.org/records/259661) | `RNA_cqn_matrix.txt.gz`, `RNA_gene_metadata.txt.gz`, `RNA_sample_metadata.txt.gz`, `ATAC_cqn_matrix.txt.gz`, `ATAC_peak_metadata.txt.gz`, `ATAC_sample_metadata.txt.gz` |
+| [EBI BioStudies S-BSST16](https://www.ebi.ac.uk/biostudies/studies/S-BSST16) | `all_basic_counts.open.txt.gz`, `atac_consensus_peaks.txt.gz`, `atac_qtl.rasqual.1k.txt.gz`, `eqtl.fastqtl.500k.nominals.txt.gz`, `eqtl.fastqtl.500k.permutations.txt.gz`, `eqtl.rasqual.500k.txt.gz`, `metadata.open.txt`, `sqtl.fastqtl.nominals.txt.gz`, `sqtl.fastqtl.permutations.txt.gz` |
+
+> **Missing file:** `raw_adult_vd_cells_post_qc.h5ad` has no public download URL.
+> It is a derived artifact from `scRNA-seq_of_adult_gamma_delta_T_cells.h5ad`
+> (which is downloaded). Generate it by running `bio_code/pediatric_gdt_pipeline.ipynb`,
+> or contact the study authors. Tasks that depend on this file will be skipped
+> until it is present.
+
 #### QRData
 ```bash
 cd examples

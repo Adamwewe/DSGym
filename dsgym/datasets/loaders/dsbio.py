@@ -155,6 +155,7 @@ class DSBioDataset(BaseDataset):
         random_sample: bool = False,
         generate_dags: bool = True,
         model: str = "gpt-4o",
+        dag_output_dir: Optional[str] = None,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -171,6 +172,9 @@ class DSBioDataset(BaseDataset):
                 should implement and call in sequence — consistent with the tool interface
                 used by other datasets in the repo.
             model: LiteLLM-compatible model used for DAG generation (default: "gpt-4o").
+            dag_output_dir: If provided (and generate_dags is True), each sample's
+                reasoning and implementation DAGs are saved as a JSON file under this
+                directory using the filename pattern ``{sample_index}_dags.json``.
             **kwargs: Additional loading parameters
             
         Returns:
@@ -212,6 +216,10 @@ class DSBioDataset(BaseDataset):
                 generate_reasoning_dag,
                 generate_implementation_dag,
             )
+
+        # Prepare DAG output directory if requested.
+        if generate_dags and dag_output_dir:
+            os.makedirs(dag_output_dir, exist_ok=True)
         
         # Convert to standard format
         for idx, item in enumerate(raw_data):
@@ -258,6 +266,19 @@ class DSBioDataset(BaseDataset):
                         f"⚠️  DAG generation failed for sample {original_index} "
                         f"({type(exc).__name__}: {exc}). Continuing without DAGs."
                     )
+
+            # Save DAG artifacts to disk if an output directory was specified.
+            if generate_dags and dag_output_dir and (reasoning_dag is not None or implementation_dag is not None):
+                dag_artifact = {
+                    "sample_index": original_index,
+                    "question": question,
+                    "reasoning_dag": reasoning_dag.model_dump() if reasoning_dag is not None else None,
+                    "implementation_dag": implementation_dag.model_dump() if implementation_dag is not None else None,
+                }
+                dag_file = os.path.join(dag_output_dir, f"{original_index}_dags.json")
+                with open(dag_file, "w", encoding="utf-8") as f:
+                    json.dump(dag_artifact, f, indent=2, ensure_ascii=False)
+                print(f"💾 DAG artifact saved: {dag_file}")
 
             # Create prompt using dsbio format
             prompt_content = create_dsbio_prompt(

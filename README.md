@@ -227,14 +227,16 @@ dsgym eval \
 #### Output Structure
 
 ```
-trajectory_results/
-├── prediction_0_traj_0.json      # Sample 0, trajectory 0 (complete conversation)
-├── prediction_0_traj_1.json      # Sample 0, trajectory 1
-├── ...
-├── predictions/
-│   └── trajectory_..._all.json    # Combined analysis file
-└── metrics/
-    └── trajectory_..._metrics.json # Pass@K and average metrics
+{output_dir}/
+├── {run_name}_results.json       # Full per-sample results (with trajectories)
+├── {run_name}_summary.json       # Lightweight per-sample summary
+├── {run_name}_summary.csv        # CSV for easy analysis
+├── {run_name}_metrics.json       # Aggregated metrics
+├── {run_name}_config.json        # Evaluation configuration
+└── dags/                         # DAG artifacts (DSBio --dags true only)
+    ├── 0_dags.json               # reasoning + implementation DAGs for sample 0
+    ├── 1_dags.json               # reasoning + implementation DAGs for sample 1
+    └── ...
 ```
 
 ## Supported Datasets
@@ -305,10 +307,16 @@ the CLI or the Python API.
 | `--dags true\|false` | `false` | Enable DAG-guided prompts per sample |
 | `--dag-model MODEL` | `gpt-4o` | OpenAI model used for DAG generation |
 
+When `--dags true` is set, DAG artifacts are automatically saved as individual
+JSON files under `{output_dir}/dags/` (e.g. `results/dags/0_dags.json`,
+`results/dags/1_dags.json`, …). Each file contains the sample index, the
+question text, and the serialised `reasoning_dag` and `implementation_dag`.
+
 ```bash
 # Compare with and without DAGs
 dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags false
 dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags true --dag-model gpt-4o-mini
+# → DAG artifacts written to {output_dir}/dags/
 ```
 
 **Python API:**
@@ -320,14 +328,18 @@ dataset = DatasetRegistry.load("dsbio")
 
 # generate_dags=True calls the OpenAI API once per sample and injects the
 # resulting plan + function stubs into every sample's prompt automatically.
-samples = dataset.load(limit=10, generate_dags=True, model="gpt-4o")
+# dag_output_dir saves each sample's DAGs as {index}_dags.json files.
+samples = dataset.load(
+    limit=10,
+    generate_dags=True,
+    model="gpt-4o",
+    dag_output_dir="./results/dags",   # omit to skip saving artifacts
+)
 
-# The raw DAG objects are also stored in extra_info for downstream use.
+# The raw DAG dicts are also stored in extra_info for downstream use.
 sample = samples[0]
-reasoning = sample["extra_info"]["reasoning_dag"]
+reasoning = sample["extra_info"]["reasoning_dag"]   # plain dict
 impl      = sample["extra_info"]["implementation_dag"]
-print(reasoning.model_dump_json(indent=2))
-print(impl.model_dump_json(indent=2))
 ```
 
 DAG generation failures (e.g. API errors) are caught per-sample and logged as
@@ -386,7 +398,7 @@ impl      = generate_implementation_dag(question, context, reasoning, model="gpt
 | `dsgym/datasets/dag.py` | `ReasoningDAG`, `ImplementationDAG`, `DSBioTaskType`, shared cycle-detection |
 | `dsgym/datasets/dag_generator.py` | `generate_reasoning_dag`, `generate_implementation_dag`, `generate_dags_for_sample` |
 | `dsgym/datasets/prompts/dag_prompts.py` | System prompts, reference examples, `build_reasoning_prompt` / `build_implementation_prompt` |
-| `dsgym/datasets/loaders/dsbio.py` | `DSBioDataset.load(generate_dags=…)`, `generate_dag()` / `generate_dags()`, `_format_dag_section()` |
+| `dsgym/datasets/loaders/dsbio.py` | `DSBioDataset.load(generate_dags=…, dag_output_dir=…)`, `generate_dag()` / `generate_dags()`, `_format_dag_section()` |
 
 > **Requires** `OPENAI_API_KEY` and the `openai` package (already listed in
 > `pyproject.toml` dependencies).

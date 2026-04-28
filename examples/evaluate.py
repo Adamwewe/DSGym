@@ -191,6 +191,8 @@ def load_dataset(args):
     elif dataset_name == "dsbio":
         dataset_config["virtual_data_root"] = "/data"
         load_config["generate_dags"] = args.dags
+        if args.dags:
+            load_config["dag_output_dir"] = os.path.join(args.output_dir, "dags")
     
     dataset = DatasetRegistry.load(dataset_name, **dataset_config)
     tasks = dataset.load(**load_config)

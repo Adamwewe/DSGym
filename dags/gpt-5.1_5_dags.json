@@ -1,0 +1,90 @@
+{
+  "sample_index": 5,
+  "question": "Which scRNA-seq cell type shows the highest expression correlation with the largest spatial cluster in the aortic Slide-seqV2 dataset? Hint: look at 'author_cell_type' annotation in metadata.",
+  "reasoning_dag": {
+    "graph_id": "sc_spatial_correlation_aorta",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Identify the largest spatial cluster in the aortic Slide-seqV2 dataset and subset corresponding beads/spots"
+      },
+      {
+        "id": "n2",
+        "label": "Compute average gene expression profile for the largest spatial cluster"
+      },
+      {
+        "id": "n3",
+        "label": "Group scRNA-seq cells by 'author_cell_type' annotation and compute average gene expression per cell type"
+      },
+      {
+        "id": "n4",
+        "label": "Align genes between spatial and scRNA-seq average expression matrices and restrict to shared informative genes"
+      },
+      {
+        "id": "n5",
+        "label": "Calculate expression correlation between the largest spatial cluster and each scRNA-seq cell type and identify the maximum"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "sc_spatial_correlation_aorta",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load aortic Slide-seqV2 AnnData object, identify cluster with maximum bead count from `adata_sp.obs['spatial_cluster']`, and subset `adata_sp_largest = adata_sp[adata_sp.obs['spatial_cluster'] == largest_cluster_id].copy()`"
+      },
+      {
+        "id": "n2",
+        "label": "Compute average gene expression for the largest spatial cluster as `sp_mean = adata_sp_largest.X.mean(axis=0)` and store as a pandas Series indexed by `adata_sp_largest.var_names`"
+      },
+      {
+        "id": "n3",
+        "label": "Load scRNA-seq AnnData object, group cells by `adata_sc.obs['author_cell_type']`, and compute average expression per cell type as a matrix (genes x cell types) using groupby with mean on `adata_sc.X`"
+      },
+      {
+        "id": "n4",
+        "label": "Intersect gene sets between `sp_mean` and scRNA-seq average expression matrix, optionally restrict to highly variable or non-zero genes in both datasets, and subset both to the common gene list with matched ordering"
+      },
+      {
+        "id": "n5",
+        "label": "For each scRNA-seq cell type column, compute Pearson correlation between the aligned spatial mean vector and the cell-type mean expression vector, then identify and report the `author_cell_type` with the maximum correlation and its correlation value"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

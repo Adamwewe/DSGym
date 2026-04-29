@@ -1,0 +1,90 @@
+{
+  "sample_index": 6,
+  "question": "Which gene shows the strongest RNA enrichment in BM cells compared with LHS and LASP?",
+  "reasoning_dag": {
+    "graph_id": "bm_enriched_gene_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Define BM, LHS, and LASP basal-myoepithelial cell subsets and extract corresponding RNA count data"
+      },
+      {
+        "id": "n2",
+        "label": "Normalize RNA expression within each subset and control for confounders such as library size and batch"
+      },
+      {
+        "id": "n3",
+        "label": "Perform differential expression analysis comparing BM vs LHS and BM vs LASP separately"
+      },
+      {
+        "id": "n4",
+        "label": "Integrate DE results to identify genes consistently enriched in BM relative to both LHS and LASP"
+      },
+      {
+        "id": "n5",
+        "label": "Rank enriched genes by effect size and significance to select the single strongest BM-enriched RNA marker"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "bm_enriched_gene_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Subset AnnData to basal-myoepithelial nuclei and extract RNA counts for BM, LHS, and LASP groups using cell-type and condition annotations"
+      },
+      {
+        "id": "n2",
+        "label": "Normalize RNA counts for BM, LHS, and LASP subsets with SCTransform or log-normalization including library size and batch as covariates, and store corrected expression matrices"
+      },
+      {
+        "id": "n3",
+        "label": "Run differential expression with a negative binomial or linear model (e.g., Seurat::FindMarkers or scanpy.tl.rank_genes_groups) for BM vs LHS and BM vs LASP separately using batch as a covariate"
+      },
+      {
+        "id": "n4",
+        "label": "Intersect BM vs LHS and BM vs LASP DE result tables to retain genes significantly upregulated in BM (adjusted p-value threshold and positive log fold-change in both contrasts)"
+      },
+      {
+        "id": "n5",
+        "label": "Rank intersected BM-enriched genes by combined effect size (e.g., minimum log fold-change across contrasts) and aggregate significance (e.g., maximum adjusted p-value) and select the top-ranked gene as the strongest BM-enriched RNA marker"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

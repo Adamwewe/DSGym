@@ -1,0 +1,252 @@
+{
+  "sample_index": 0,
+  "question": "Which 4 immune cell markers distinguish macrophages (Cluster 7) from T cells (Cluster 9) in the newborn lung?",
+  "reasoning_dag": {
+    "graph_id": "newborn_lung_macrophage_vs_Tcell_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Identify the specific newborn lung scRNA-seq dataset and load expression matrix and cell metadata"
+      },
+      {
+        "id": "n2",
+        "label": "Confirm cluster annotations and locate macrophage Cluster 7 and T cell Cluster 9 in the metadata"
+      },
+      {
+        "id": "n3",
+        "label": "Subset expression data to cells belonging to Cluster 7 (macrophages) and Cluster 9 (T cells)"
+      },
+      {
+        "id": "n4",
+        "label": "Inspect known canonical macrophage markers (e.g., LST1, MARCO, CD68, MSR1, APOE, SPP1) and T cell markers (e.g., CD3D, CD3E, CD4, CD8A, TRAC) in the newborn lung dataset"
+      },
+      {
+        "id": "n5",
+        "label": "Perform differential expression analysis between Cluster 7 and Cluster 9 to identify genes significantly upregulated in macrophages vs T cells"
+      },
+      {
+        "id": "n6",
+        "label": "Filter DE genes for immune-related and surface or lineage markers using gene annotations and prior immunology knowledge"
+      },
+      {
+        "id": "n7",
+        "label": "Rank macrophage-enriched immune markers by effect size and specificity compared with T cells"
+      },
+      {
+        "id": "n8",
+        "label": "Assess expression distribution of top macrophage markers across all clusters to ensure they are not broadly expressed in T cells or other lineages"
+      },
+      {
+        "id": "n9",
+        "label": "Perform reciprocal check of T cell canonical markers to ensure they are low or absent in macrophage Cluster 7"
+      },
+      {
+        "id": "n10",
+        "label": "Select four macrophage markers that are robustly and specifically higher in Cluster 7 than in Cluster 9 and are interpretable as immune cell markers"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n2",
+        "target": "n3",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n3",
+        "target": "n4",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n3",
+        "target": "n5",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n4",
+        "target": "n6",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n5",
+        "target": "n6",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n6",
+        "target": "n7",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n7",
+        "target": "n8",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n8",
+        "target": "n9",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n8",
+        "target": "n10",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n9",
+        "target": "n10",
+        "weight": null,
+        "label": null,
+        "condition": null
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "newborn_lung_macrophage_vs_Tcell_markers_implementation",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load newborn lung scRNA-seq AnnData object and associated metadata from CELLxGENE"
+      },
+      {
+        "id": "n2",
+        "label": "Verify cluster identities and map Cluster 7 to macrophages and Cluster 9 to T cells using metadata column (e.g., 'leiden' or 'cluster')"
+      },
+      {
+        "id": "n3",
+        "label": "Subset AnnData object to cells where cluster == '7' or cluster == '9' and store cluster labels"
+      },
+      {
+        "id": "n4",
+        "label": "Plot and summarize expression of canonical macrophage markers (LST1, MARCO, CD68, MSR1, APOE, SPP1) and T cell markers (CD3D, CD3E, CD4, CD8A, TRAC) across clusters 7 and 9"
+      },
+      {
+        "id": "n5",
+        "label": "Run differential expression analysis (e.g., scanpy.tl.rank_genes_groups with method='wilcoxon') comparing Cluster 7 (macrophages) vs Cluster 9 (T cells)"
+      },
+      {
+        "id": "n6",
+        "label": "Filter DE results for genes significantly upregulated in Cluster 7 with immune-related and surface/lineage annotations using external gene annotation tables and known macrophage marker lists"
+      },
+      {
+        "id": "n7",
+        "label": "Rank macrophage-enriched immune markers by log2 fold change, adjusted p-value, and specificity score between Cluster 7 and Cluster 9"
+      },
+      {
+        "id": "n8",
+        "label": "Visualize expression distributions (violin, dot, or heatmap plots) of top-ranked macrophage markers across all clusters to confirm minimal expression in T cells and other lineages"
+      },
+      {
+        "id": "n9",
+        "label": "Quantify and visualize expression of canonical T cell markers (CD3D, CD3E, CD4, CD8A, TRAC) in Cluster 7 to ensure low or absent expression"
+      },
+      {
+        "id": "n10",
+        "label": "Select four macrophage markers that are robustly and specifically higher in Cluster 7 than Cluster 9, immune-related, and with low expression in T cells"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n2",
+        "target": "n3",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n3",
+        "target": "n4",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n3",
+        "target": "n5",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n4",
+        "target": "n6",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n5",
+        "target": "n6",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n6",
+        "target": "n7",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n7",
+        "target": "n8",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n8",
+        "target": "n9",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n8",
+        "target": "n10",
+        "weight": null,
+        "label": null,
+        "condition": null
+      },
+      {
+        "source": "n9",
+        "target": "n10",
+        "weight": null,
+        "label": null,
+        "condition": null
+      }
+    ]
+  }
+}

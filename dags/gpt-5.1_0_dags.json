@@ -1,0 +1,90 @@
+{
+  "sample_index": 0,
+  "question": "Which 4 immune cell markers distinguish macrophages (Cluster 7) from T cells (Cluster 9) in the newborn lung?",
+  "reasoning_dag": {
+    "graph_id": "newborn_lung_macrophage_Tcell_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Identify and extract Cluster 7 (macrophages) and Cluster 9 (T cells) cells from the annotated newborn lung scRNA-seq dataset"
+      },
+      {
+        "id": "n2",
+        "label": "Perform appropriate normalization and covariate correction on expression data for the selected clusters to make them comparable"
+      },
+      {
+        "id": "n3",
+        "label": "Run differential expression analysis between Cluster 7 and Cluster 9 to identify genes enriched in macrophages versus T cells"
+      },
+      {
+        "id": "n4",
+        "label": "Filter DE genes for canonical immune lineage markers that robustly distinguish macrophages from T cells"
+      },
+      {
+        "id": "n5",
+        "label": "Rank candidate markers by specificity and expression magnitude and select four macrophage and four T cell markers that best discriminate the clusters"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "newborn_lung_macrophage_Tcell_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load newborn lung CELLxGENE AnnData object and subset cells annotated as Cluster 7 (macrophages) and Cluster 9 (T cells) into a new AnnData"
+      },
+      {
+        "id": "n2",
+        "label": "On the subset AnnData, perform log1p CPM normalization, scale expression, and regress out n_counts and percent_mito to obtain covariate-corrected expression values"
+      },
+      {
+        "id": "n3",
+        "label": "Run differential expression with scanpy.tl.rank_genes_groups comparing Cluster 7 vs Cluster 9 using method='wilcoxon' and store results in adata.uns['rank_genes_groups']"
+      },
+      {
+        "id": "n4",
+        "label": "From DE results, intersect significantly enriched genes (adjusted p < 0.05, log2FC > 0.5) with a curated list of canonical macrophage markers (e.g. CD68, MARCO, CSF1R, LILRB4) and T cell markers (e.g. CD3D, CD3E, CD4, CD8A) to retain lineage-specific candidates"
+      },
+      {
+        "id": "n5",
+        "label": "For each lineage, compute average expression and detection rate per cluster for candidate markers, rank by log2FC specificity and mean expression, and select four macrophage markers and four T cell markers with highest discriminatory power between Cluster 7 and Cluster 9"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "sample_index": 4,
+  "question": "In Slide-seqV2 of the aorta, which gene shows the greatest log-fold change between seurac_clusters 0 (smooth muscle-rich) and seurac_clusters 1 (fibroblast-rich) regions? If cell type annotations are needed, refer to 'author_cell_type'.",
+  "reasoning_dag": {
+    "graph_id": "slideseq_aorta_DE_cluster0_vs1",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Verify Slide-seqV2 aorta dataset structure and mapping between seurac_clusters, spots, and author_cell_type annotations"
+      },
+      {
+        "id": "n2",
+        "label": "Subset spatial transcriptomic spots belonging to seurac_clusters 0 and 1 and confirm enrichment for smooth muscle and fibroblast cell types"
+      },
+      {
+        "id": "n3",
+        "label": "Normalise expression data and control for technical covariates across the two selected clusters"
+      },
+      {
+        "id": "n4",
+        "label": "Perform differential expression analysis between seurac_clusters 0 and 1 to obtain log-fold changes per gene"
+      },
+      {
+        "id": "n5",
+        "label": "Identify the gene with the greatest absolute log-fold change and verify its cell-type consistency with smooth muscle- and fibroblast-rich domains"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "slideseq_aorta_DE_cluster0_vs1",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load Slide-seqV2 aorta AnnData object and verify presence and structure of `seurac_clusters`, spot barcodes, and `author_cell_type` annotations"
+      },
+      {
+        "id": "n2",
+        "label": "Subset spots for seurac_clusters 0 and 1, and summarise author_cell_type composition to confirm smooth muscle- and fibroblast-enrichment"
+      },
+      {
+        "id": "n3",
+        "label": "Normalise counts for spots in clusters 0 and 1, log-transform, and regress out technical covariates (e.g., total counts, percent mitochondrial)"
+      },
+      {
+        "id": "n4",
+        "label": "Perform differential expression testing between seurac_clusters 0 and 1 and compute per-gene log-fold changes"
+      },
+      {
+        "id": "n5",
+        "label": "Identify gene with maximum absolute log-fold change and cross-check its expression and author_cell_type distribution in clusters 0 and 1"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "sample_index": 9,
+  "question": "What proportion of significant caQTL lead SNPs lie within 1,000 bp of their peak center? Choose from these approximate options: 20%, 50%, 75%, or 100%.",
+  "reasoning_dag": {
+    "graph_id": "caqtl_peak_distance_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Clarify input data structures for caQTL lead SNPs and ATAC peak coordinates, ensuring both are on the same genome build and in comparable formats"
+      },
+      {
+        "id": "n2",
+        "label": "Define the distance metric as the absolute genomic distance between each lead SNP position and the center of its associated consensus ATAC peak"
+      },
+      {
+        "id": "n3",
+        "label": "Compute the absolute distance from each significant caQTL lead SNP to its peak center and obtain the empirical distribution of these distances"
+      },
+      {
+        "id": "n4",
+        "label": "Calculate the proportion of lead SNPs with distance ≤ 1,000 bp from their peak center across all significant caQTLs"
+      },
+      {
+        "id": "n5",
+        "label": "Compare the estimated proportion to the candidate values (20%, 50%, 75%, 100%) and choose the closest biologically plausible option given typical caQTL geometry"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "caqtl_peak_distance_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load significant caQTL lead SNP table and consensus ATAC peak BED file, confirming shared genome build, chromosome naming, and coordinate system"
+      },
+      {
+        "id": "n2",
+        "label": "For each consensus ATAC peak, compute the peak center as center = floor((start + end) / 2) and define the SNP–peak distance as abs(snp_pos - center)"
+      },
+      {
+        "id": "n3",
+        "label": "Join each significant caQTL lead SNP to its associated consensus ATAC peak, compute abs(snp_pos - peak_center) for all pairs, and save the resulting distance vector"
+      },
+      {
+        "id": "n4",
+        "label": "Compute the proportion of significant caQTL lead SNPs whose distance to their peak center is less than or equal to 1000 bp by calculating mean(distance <= 1000)"
+      },
+      {
+        "id": "n5",
+        "label": "Compare the computed proportion to 0.20, 0.50, 0.75, and 1.00, choose the closest value, and verify that it is consistent with known caQTL distance enrichments near peak centers"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

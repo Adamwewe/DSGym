@@ -1,0 +1,106 @@
+{
+  "sample_index": 2,
+  "question": "Which developmental transcription factors along with ISL1 and MEF2C shows significant motif enrichment in genes differentially expressed between ascending and descending fibroblasts?",
+  "reasoning_dag": {
+    "graph_id": "tf_motif_enrichment_fibroblast_aorta",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Define ascending vs descending fibroblast DEG sets and appropriate background gene universe"
+      },
+      {
+        "id": "n2",
+        "label": "Map DEGs to promoter or regulatory regions suitable for motif scanning"
+      },
+      {
+        "id": "n3",
+        "label": "Select a curated database of developmental transcription factor motifs including ISL1 and MEF2C"
+      },
+      {
+        "id": "n4",
+        "label": "Perform motif enrichment analysis on DEG-associated regions relative to background"
+      },
+      {
+        "id": "n5",
+        "label": "Identify significantly enriched motifs for ISL1, MEF2C, and other developmental TFs after multiple-testing correction"
+      },
+      {
+        "id": "n6",
+        "label": "Interpret enriched developmental TF motifs in the context of ascending vs descending fibroblast biology"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      },
+      {
+        "source": "n5",
+        "target": "n6"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "tf_motif_enrichment_fibroblast_aorta",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load fibroblast bulk/single-cell RNA-seq DEG results for ascending vs descending aorta and define DEG sets plus background gene universe (e.g., |log2FC| >= 0.25, FDR <= 0.05; background = all tested fibroblast-expressed genes)"
+      },
+      {
+        "id": "n2",
+        "label": "Map DEG and background gene sets to genomic regulatory regions by retrieving hg38 TSS-centered promoters (e.g., ±2 kb) or accessible peaks (e.g., from ATAC-seq) using biomaRt/ensembldb and export BED files for foreground (DEGs) and background"
+      },
+      {
+        "id": "n3",
+        "label": "Prepare a PWM library of developmental transcription factor motifs, ensuring inclusion of ISL1 and MEF2C, by downloading JASPAR2024 vertebrate TF PWMs and subsetting to TFs annotated with GO terms for development or cardiac/neural crest development"
+      },
+      {
+        "id": "n4",
+        "label": "Run motif enrichment on DEG-associated regions versus background using HOMER or MEME/AME with the developmental TF PWM library, specifying promoter BED files as target, background BED as control, and recording enrichment statistics (p-values, odds ratios)"
+      },
+      {
+        "id": "n5",
+        "label": "Aggregate motif enrichment outputs to identify significantly enriched motifs for ISL1, MEF2C, and other developmental TFs by applying multiple-testing correction (e.g., Benjamini-Hochberg FDR <= 0.05) and annotating motifs to TF gene symbols"
+      },
+      {
+        "id": "n6",
+        "label": "Integrate the list of significantly enriched developmental TF motifs (including ISL1 and MEF2C) with DEG directionality and known aortic/fibroblast developmental pathways to determine which additional TFs show prominent motif enrichment distinguishing ascending vs descending fibroblasts"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      },
+      {
+        "source": "n5",
+        "target": "n6"
+      }
+    ]
+  }
+}

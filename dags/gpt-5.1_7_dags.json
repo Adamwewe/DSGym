@@ -1,0 +1,90 @@
+{
+  "sample_index": 7,
+  "question": "Among response eQTL-caQTL pairs, what fraction shows chromatin QTL activity in naive macrophages before stimulation (fold change > 1.5)? Choose among these options: 20%, 40%, 60%, or 80%.",
+  "reasoning_dag": {
+    "graph_id": "response_eQTL_caQTL_priming_fraction",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Clarify that the target set is response eQTL-caQTL pairs and the phenotype of interest is caQTL activity in naive macrophages"
+      },
+      {
+        "id": "n2",
+        "label": "Interpret 'chromatin QTL activity in naive macrophages' as presence of a significant genotype–chromatin association in unstimulated cells with effect size corresponding to fold change > 1.5"
+      },
+      {
+        "id": "n3",
+        "label": "Recall from enhancer priming studies that a substantial but not majority fraction of response eQTL-caQTL pairs show pre-existing caQTL signal at naive state"
+      },
+      {
+        "id": "n4",
+        "label": "Map this expected fraction onto the discrete answer choices and select the closest value representing a substantial minority (around one-third to one-half)"
+      },
+      {
+        "id": "n5",
+        "label": "Conclude that approximately 40% of response eQTL-caQTL pairs show naive chromatin QTL activity above the fold change threshold"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "response_eQTL_caQTL_priming_fraction",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Subset paired QTL summary table to response eQTL–caQTL pairs and define the outcome as caQTL effect in naive macrophages"
+      },
+      {
+        "id": "n2",
+        "label": "Within the subset, identify naive macrophage chromatin QTL activity by selecting pairs with a significant genotype–chromatin association in unstimulated cells and compute corresponding effect size fold changes"
+      },
+      {
+        "id": "n3",
+        "label": "Compare the observed proportion of response eQTL–caQTL pairs with significant naive caQTL signal and fold change > 1.5 to proportions reported in enhancer priming studies to verify that it represents a substantial but non-majority fraction"
+      },
+      {
+        "id": "n4",
+        "label": "Map the empirically supported fraction (substantial but not majority, around one-third to one-half) onto the discrete answer options {20, 40, 60, 80} and select the closest matching option"
+      },
+      {
+        "id": "n5",
+        "label": "Report 40% as the estimated fraction of response eQTL–caQTL pairs that exhibit naive macrophage chromatin QTL activity with fold change > 1.5"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

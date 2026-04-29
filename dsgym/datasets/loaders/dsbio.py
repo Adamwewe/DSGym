@@ -3,7 +3,6 @@ Bio dataset loader for single-cell transcriptomics tasks.
 """
 
 import os
-import re
 import json
 from typing import List, Dict, Any, Optional, Union
 
@@ -28,13 +27,10 @@ DSBIO_INSTRUCTIONS = """
 """
 
 
-def _label_to_func_id(label: str) -> str:
-    """Convert a node label to a valid Python snake_case function name."""
-    s = label.lower()
-    s = re.sub(r"[^a-z0-9\s]", "", s)
-    s = re.sub(r"\s+", "_", s.strip())
-    s = re.sub(r"_+", "_", s)
-    return (s[:60] or "step").strip("_")
+def _dag_flow_string(nodes: list) -> str:
+    """Render nodes as a linear flow: [n1: label] → [n2: label] → ..."""
+    parts = [f"[{n.id}: {n.label}]" for n in nodes]
+    return " → ".join(parts)
 
 
 def _format_dag_section(
@@ -44,48 +40,37 @@ def _format_dag_section(
     """
     Format reasoning and implementation DAGs into a prompt section.
 
-    The reasoning DAG is shown as a numbered analysis plan.
-    The implementation DAG nodes are rendered as Python function stubs that the
-    agent should implement and call in order — the same tool interface used by
-    other datasets in the repo (Python code execution via <python> tags).
+    Surfaces the plan prominently so it anchors attention before the question
+    details. Uses a flow-string so the graph topology is immediately readable,
+    and a numbered checklist so the model can track progress step-by-step.
     """
     lines: List[str] = []
+    lines.append("=" * 60)
+    lines.append("EXPERT ANALYSIS PLAN")
+    lines.append("=" * 60)
 
     if reasoning_dag:
-        lines.append("ANALYSIS PLAN (Reasoning DAG):")
-        lines.append("Before writing any code, reason through these steps in order:")
+        n = len(reasoning_dag.nodes)
+        lines.append(f"\nANALYTICAL LOGIC ({n} steps):")
+        lines.append(_dag_flow_string(reasoning_dag.nodes))
+        lines.append("")
         for i, node in enumerate(reasoning_dag.nodes, 1):
-            lines.append(f"  {i}. [{node.task_type.value}] {node.label}")
+            lines.append(f"  {i}. {node.label}")
         lines.append("")
 
     if implementation_dag:
-        lines.append("IMPLEMENTATION TOOLS:")
-        lines.append(
-            "The following Python functions represent each implementation step. "
-            "Implement and call them in sequence using <python> blocks, "
-            "following the order shown below."
-        )
+        n = len(implementation_dag.nodes)
+        lines.append(f"EXECUTION STEPS — follow these {n} steps in strict order:")
+        lines.append(_dag_flow_string(implementation_dag.nodes))
         lines.append("")
+        for i, node in enumerate(implementation_dag.nodes, 1):
+            lines.append(f"  Step {i}/{n}: {node.label}")
+        lines.append("")
+        lines.append(
+            "In each <reasoning> block, start with: [Step N/M — <step label>]"
+        )
 
-        func_names: List[str] = []
-        for node in implementation_dag.nodes:
-            func_id = node.metadata.function_id
-            if not func_id or func_id == "PLACEHOLDER":
-                func_id = _label_to_func_id(node.label)
-            test_type = node.metadata.test_type or "heuristic"
-            lines.append(f"def {func_id}():")
-            lines.append(f'    """{node.label}  [test_type: {test_type}]"""')
-            lines.append("    pass")
-            lines.append("")
-            func_names.append(func_id)
-
-        if func_names:
-            lines.append(
-                "Execution order: "
-                + " → ".join(func_names)
-            )
-            lines.append("")
-
+    lines.append("=" * 60)
     return "\n".join(lines)
 
 
@@ -99,34 +84,33 @@ def create_dsbio_prompt(
 ) -> str:
     virtual_paths = data_paths['virtual']
     dataset_locations = '\n'.join(virtual_paths) if virtual_paths else 'No dataset provided'
-    
+
     domain = metadata.get('domain', 'computational biology')
     guidelines = metadata.get('guidelines', '')
 
-    metadata_lines = []
-    metadata_lines.append(f"DOMAIN: {domain}")
-    
+    metadata_lines = [f"DOMAIN: {domain}"]
     if guidelines:
         metadata_lines.append(f"ANSWER GUIDELINES: {guidelines}")
-    
     metadata_section = '\n'.join(metadata_lines)
 
-    dag_section = ""
+    # Surface the DAG plan first so it anchors attention before question details.
     if reasoning_dag is not None or implementation_dag is not None:
-        dag_section = "\n" + _format_dag_section(reasoning_dag, implementation_dag)
+        dag_block = _format_dag_section(reasoning_dag, implementation_dag) + "\n\n"
+    else:
+        dag_block = ""
 
-    prompt = f"""QUESTION: {question}
+    prompt = f"""{dag_block}QUESTION: {question}
 
 {metadata_section}
 
 DATASET LOCATIONS (use full paths):
 {dataset_locations}
-{dag_section}
+
 INSTRUCTIONS:
 {DSBIO_INSTRUCTIONS}
 
 Please analyze the data and provide your answer based on the specific question asked."""
-    
+
     return prompt
 
 
@@ -155,7 +139,7 @@ class DSBioDataset(BaseDataset):
         random_sample: bool = False,
         generate_dags: bool = True,
         model: str = "gpt-4o",
-        dag_output_dir: Optional[str] = None,
+        dag_output_dir: Optional[str] = "dags",
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -275,7 +259,8 @@ class DSBioDataset(BaseDataset):
                     "reasoning_dag": reasoning_dag.model_dump() if reasoning_dag is not None else None,
                     "implementation_dag": implementation_dag.model_dump() if implementation_dag is not None else None,
                 }
-                dag_file = os.path.join(dag_output_dir, f"{original_index}_dags.json")
+                model_slug = model.replace("/", "_")
+                dag_file = os.path.join(dag_output_dir, f"{model_slug}_{original_index}_dags.json")
                 with open(dag_file, "w", encoding="utf-8") as f:
                     json.dump(dag_artifact, f, indent=2, ensure_ascii=False)
                 print(f"💾 DAG artifact saved: {dag_file}")

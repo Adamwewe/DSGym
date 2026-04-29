@@ -1,0 +1,74 @@
+{
+  "sample_index": 8,
+  "question": "How many ATAC-seq peaks are significant caQTLs at 10% FDR using the Benjamini–Hochberg q-value reported by RASQUAL?",
+  "reasoning_dag": {
+    "graph_id": "caQTL_FDR10_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Confirm that the RASQUAL BH q-value column corresponds to peak-level multiple-testing correction"
+      },
+      {
+        "id": "n2",
+        "label": "Decide on the FDR significance threshold and any inclusions or exclusions of peaks"
+      },
+      {
+        "id": "n3",
+        "label": "Filter ATAC-seq peaks whose RASQUAL BH q-values are below or equal to the 10% FDR threshold"
+      },
+      {
+        "id": "n4",
+        "label": "Count the number of peaks passing the 10% FDR threshold to obtain the total significant caQTL peaks"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "caQTL_FDR10_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load RASQUAL caQTL summary statistics table and verify that the BH q-value column is defined at the peak level (e.g. by checking documentation or column description and confirming one q-value per peak)"
+      },
+      {
+        "id": "n2",
+        "label": "Set the FDR significance threshold to q <= 0.10 and, if needed, subset the table to the relevant set of ATAC-seq peaks (e.g. autosomes only or primary peak list) without applying any additional statistical filters"
+      },
+      {
+        "id": "n3",
+        "label": "Filter the RASQUAL caQTL summary table to retain only rows corresponding to ATAC-seq peaks whose BH q-value column is not missing and is less than or equal to 0.10"
+      },
+      {
+        "id": "n4",
+        "label": "Count the number of unique ATAC-seq peak identifiers in the filtered table as the total number of significant caQTL peaks at 10% FDR"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      }
+    ]
+  }
+}

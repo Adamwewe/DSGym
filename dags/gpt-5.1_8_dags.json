@@ -1,0 +1,74 @@
+{
+  "sample_index": 8,
+  "question": "How many ATAC-seq peaks are significant caQTLs at 10% FDR using the Benjamini–Hochberg q-value reported by RASQUAL?",
+  "reasoning_dag": {
+    "graph_id": "caQTL_FDR_10pct_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Confirm that the BH q-value column from RASQUAL corresponds to peak-level multiple-testing–corrected caQTL statistics"
+      },
+      {
+        "id": "n2",
+        "label": "Define the significance criterion as q-value ≤ 0.10 to represent 10% FDR"
+      },
+      {
+        "id": "n3",
+        "label": "Apply the 10% FDR threshold to all ATAC-seq peaks to identify significant caQTL peaks"
+      },
+      {
+        "id": "n4",
+        "label": "Count the number of ATAC-seq peaks whose q-values pass the 10% FDR threshold"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "caQTL_FDR_10pct_implementation",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load RASQUAL caQTL summary statistics table and verify that the BH_qvalue column corresponds to peak-level multiple-testing–corrected caQTL q-values (e.g. by checking RASQUAL documentation and column header/description)"
+      },
+      {
+        "id": "n2",
+        "label": "Specify the significance criterion for caQTL peaks as BH_qvalue <= 0.10 to implement a 10% FDR threshold"
+      },
+      {
+        "id": "n3",
+        "label": "Filter the ATAC-seq peak rows in the RASQUAL summary table to retain only those with BH_qvalue <= 0.10, creating a subset of significant caQTL peaks"
+      },
+      {
+        "id": "n4",
+        "label": "Count the number of ATAC-seq peaks in the filtered subset (rows with BH_qvalue <= 0.10) and report this count as the number of significant caQTL peaks at 10% FDR"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      }
+    ]
+  }
+}

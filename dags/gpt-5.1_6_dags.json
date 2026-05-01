@@ -1,0 +1,90 @@
+{
+  "sample_index": 6,
+  "question": "Which gene shows the strongest RNA enrichment in BM cells compared with LHS and LASP?",
+  "reasoning_dag": {
+    "graph_id": "bm_rna_enrichment_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Define BM, LHS, and LASP cell groups and verify cluster annotations within the multiome dataset"
+      },
+      {
+        "id": "n2",
+        "label": "Preprocess RNA counts and compute normalized expression per gene for each cell"
+      },
+      {
+        "id": "n3",
+        "label": "Perform differential expression analysis comparing BM cells versus combined LHS and LASP cells"
+      },
+      {
+        "id": "n4",
+        "label": "Quantify RNA enrichment effect sizes for each gene between BM and the other groups"
+      },
+      {
+        "id": "n5",
+        "label": "Identify the gene with the strongest and statistically robust RNA enrichment in BM relative to LHS and LASP"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "bm_rna_enrichment_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load multiome AnnData object and subset cells into BM, LHS, and LASP groups based on cluster annotations (e.g., adata.obs['celltype'] in ['BM','LHS','LASP']) and verify group sizes"
+      },
+      {
+        "id": "n2",
+        "label": "For the BM, LHS, and LASP subsets, preprocess raw RNA counts by library-size normalization (e.g., sc.pp.normalize_total), log1p transformation, and optional scaling, storing normalized expression per gene per cell in adata.layers or adata.X"
+      },
+      {
+        "id": "n3",
+        "label": "Create a combined AnnData object containing BM cells (group='BM') and LHS+LASP cells (group='other'), then run differential expression with scanpy.tl.rank_genes_groups (method='wilcoxon', groupby='group', reference='other') to compare BM versus combined LHS+LASP"
+      },
+      {
+        "id": "n4",
+        "label": "From rank_genes_groups results, compute RNA enrichment effect sizes for each gene (e.g., log2 fold change using mean log-normalized expression in BM vs LHS+LASP, and optionally Cohen’s d), and assemble a summary table with gene, log2FC, p-value, and adjusted p-value"
+      },
+      {
+        "id": "n5",
+        "label": "Filter the summary table for significantly enriched genes in BM (e.g., log2FC > 0, adj p-value < 0.05), rank by effect size (primary: log2FC, secondary: adjusted p-value), and select the top-ranked gene as the one with the strongest and statistically robust RNA enrichment in BM relative to LHS and LASP"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

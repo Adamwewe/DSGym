@@ -1,0 +1,90 @@
+{
+  "sample_index": 9,
+  "question": "What proportion of significant caQTL lead SNPs lie within 1,000 bp of their peak center? Choose from these approximate options: 20%, 50%, 75%, or 100%.",
+  "reasoning_dag": {
+    "graph_id": "caqtl_peak_distance_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Define the set of significant caQTL lead SNP–peak pairs from the RASQUAL results"
+      },
+      {
+        "id": "n2",
+        "label": "Link each lead SNP to its corresponding consensus ATAC peak and compute genomic distance to the peak center"
+      },
+      {
+        "id": "n3",
+        "label": "Summarise the distribution of SNP-to-peak-center distances to understand typical caQTL geometry"
+      },
+      {
+        "id": "n4",
+        "label": "Calculate the proportion of lead SNPs with distance ≤ 1,000 bp"
+      },
+      {
+        "id": "n5",
+        "label": "Compare the computed proportion to the candidate values (20%, 50%, 75%, 100%) and select the closest approximation"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "caqtl_peak_distance_reasoning",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load RASQUAL caQTL results and filter to significant lead SNP–peak pairs"
+      },
+      {
+        "id": "n2",
+        "label": "Join lead SNPs to consensus ATAC peaks and compute genomic distance to each peak center"
+      },
+      {
+        "id": "n3",
+        "label": "Summarise SNP-to-peak-center distance distribution with descriptive statistics and visualisation"
+      },
+      {
+        "id": "n4",
+        "label": "Compute the proportion of lead SNPs with distance to peak center ≤ 1,000 bp"
+      },
+      {
+        "id": "n5",
+        "label": "Map the computed proportion to the closest of 20%, 50%, 75%, or 100% and output the selected approximation"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

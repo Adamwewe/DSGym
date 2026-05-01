@@ -1,35 +1,16 @@
 """
 DAG schema for reasoning and implementation graphs in DSGym.
 
-Adapted from sandbox-agents with two distinct schemas:
+Two distinct schemas:
   - ReasoningDAG  : abstract reasoning steps before implementation
-  - ImplementationDAG : concrete execution steps with test_type / function_id
+  - ImplementationDAG : concrete execution steps
 """
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from enum import Enum
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-
-# ---------------------------------------------------------------------------
-# Task types for DSBio (single-cell transcriptomics) workflows
-# ---------------------------------------------------------------------------
-
-class DSBioTaskType(str, Enum):
-    data_exploration       = "data_exploration"
-    quality_control        = "quality_control"
-    qc_validation          = "qc_validation"
-    preprocessing          = "preprocessing"
-    dimensionality_reduction = "dimensionality_reduction"
-    clustering             = "clustering"
-    differential_expression = "differential_expression"
-    pathway_analysis       = "pathway_analysis"
-    cell_type_annotation   = "cell_type_annotation"
-    statistical_analysis   = "statistical_analysis"
-    result_validation      = "result_validation"
 
 
 # ---------------------------------------------------------------------------
@@ -37,34 +18,25 @@ class DSBioTaskType(str, Enum):
 # ---------------------------------------------------------------------------
 
 class Edge(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
+    model_config = ConfigDict(extra="ignore")
 
     source: str = Field(min_length=1)
     target: str = Field(min_length=1)
-    weight: Optional[float] = None
-    label: Optional[str] = None
-    condition: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
 # Reasoning DAG  (abstract reasoning / validation steps)
 # ---------------------------------------------------------------------------
 
-class ReasoningNodeMetadata(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
-
-
 class ReasoningNode(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
+    model_config = ConfigDict(extra="ignore")
 
     id: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
     label: str = Field(min_length=1)
-    task_type: DSBioTaskType
-    metadata: ReasoningNodeMetadata = Field(default_factory=ReasoningNodeMetadata)
 
 
 class ReasoningDAG(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
+    model_config = ConfigDict(extra="ignore")
 
     graph_id: str = Field(min_length=1)
     nodes: list[ReasoningNode] = Field(min_length=1)
@@ -77,27 +49,18 @@ class ReasoningDAG(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Implementation DAG  (executable steps with test_type & function_id)
+# Implementation DAG  (executable steps)
 # ---------------------------------------------------------------------------
 
-class ImplementationNodeMetadata(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
-
-    test_type: Optional[Literal["deterministic", "heuristic"]] = None
-    function_id: Optional[str] = None
-
-
 class ImplementationNode(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
+    model_config = ConfigDict(extra="ignore")
 
     id: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
     label: str = Field(min_length=1)
-    task_type: DSBioTaskType
-    metadata: ImplementationNodeMetadata = Field(default_factory=ImplementationNodeMetadata)
 
 
 class ImplementationDAG(BaseModel):
-    model_config = ConfigDict(extra="ignore")  #relaxed from extra="forbit"
+    model_config = ConfigDict(extra="ignore")
 
     graph_id: str = Field(min_length=1)
     nodes: list[ImplementationNode] = Field(min_length=1)

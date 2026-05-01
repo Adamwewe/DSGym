@@ -1,0 +1,90 @@
+{
+  "sample_index": 0,
+  "question": "Which 4 immune cell markers distinguish macrophages (Cluster 7) from T cells (Cluster 9) in the newborn lung?",
+  "reasoning_dag": {
+    "graph_id": "newborn_lung_macrophage_Tcell_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Identify clusters corresponding to macrophages (7) and T cells (9) using provided cell type annotations in the newborn lung dataset"
+      },
+      {
+        "id": "n2",
+        "label": "Subset the expression matrix to cells in macrophage Cluster 7 and T cell Cluster 9 for focused comparison"
+      },
+      {
+        "id": "n3",
+        "label": "Perform differential expression analysis between macrophage Cluster 7 and T cell Cluster 9 to find significantly upregulated genes in each"
+      },
+      {
+        "id": "n4",
+        "label": "Intersect differentially expressed genes with known canonical immune markers to identify macrophage-specific and T cell-specific candidates"
+      },
+      {
+        "id": "n5",
+        "label": "Rank candidate markers by effect size, specificity, and expression robustness to select 2 macrophage and 2 T cell markers that best distinguish the clusters"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "newborn_lung_macrophage_Tcell_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load newborn lung CELLxGENE AnnData object and identify clusters 7 and 9 using cell_type and cluster annotations in adata.obs"
+      },
+      {
+        "id": "n2",
+        "label": "Subset AnnData to cells where cluster_id == '7' (macrophages) or cluster_id == '9' (T cells) and create a new AnnData with only these cells"
+      },
+      {
+        "id": "n3",
+        "label": "Run differential expression using rank_genes_groups on the subset AnnData with groups=['7','9'], method='wilcoxon', and store upregulated genes per cluster with adjusted p-values and log2 fold changes"
+      },
+      {
+        "id": "n4",
+        "label": "Load curated lists of canonical macrophage and T cell markers from an external reference (e.g. MSigDB, PanglaoDB) and intersect these with significantly upregulated genes (FDR < 0.05, log2FC > 0.5) for each cluster to obtain candidate macrophage- and T cell-specific markers"
+      },
+      {
+        "id": "n5",
+        "label": "For intersected candidates, compute effect size (log2FC), cluster specificity (percentage of expressing cells per cluster), and mean expression per cluster, then rank and select the top 2 macrophage markers and top 2 T cell markers that best separate Cluster 7 from Cluster 9"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

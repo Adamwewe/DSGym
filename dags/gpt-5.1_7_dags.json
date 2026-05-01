@@ -1,0 +1,90 @@
+{
+  "sample_index": 7,
+  "question": "Among response eQTL-caQTL pairs, what fraction shows chromatin QTL activity in naive macrophages before stimulation (fold change > 1.5)? Choose among these options: 20%, 40%, 60%, or 80%.",
+  "reasoning_dag": {
+    "graph_id": "response_eqtl_caqtl_fraction_primed",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Clarify definition of response eQTL-caQTL pairs and naive chromatin QTL activity metric (fold change > 1.5)"
+      },
+      {
+        "id": "n2",
+        "label": "Subset QTL pairs to those classified as response eQTL-caQTLs based on stimulation-dependent effects"
+      },
+      {
+        "id": "n3",
+        "label": "Quantify chromatin QTL effect size in naive macrophages for each response eQTL-caQTL pair"
+      },
+      {
+        "id": "n4",
+        "label": "Determine which response eQTL-caQTL pairs exhibit naive chromatin activity by applying the fold change > 1.5 threshold"
+      },
+      {
+        "id": "n5",
+        "label": "Compute the fraction of response eQTL-caQTL pairs with naive chromatin activity and map this value to the closest option among 20%, 40%, 60%, or 80%"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "response_eqtl_caqtl_fraction_primed",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load response eQTL-caQTL pair annotations and naive vs stimulated chromatin accessibility summary statistics; define response eQTL-caQTLs as variant–gene–peak triplets with significant eQTL and caQTL effects emerging only after stimulation, and define naive chromatin QTL activity metric as the absolute log2 fold change in chromatin accessibility between alternative and reference alleles in naive macrophages, with activity threshold set at fold change > 1.5 (|log2FC| > log2(1.5))"
+      },
+      {
+        "id": "n2",
+        "label": "From the loaded QTL dataset, subset to rows corresponding to response eQTL-caQTL pairs by filtering for variant–gene–peak records annotated as stimulation-dependent (e.g., qvalue_stim < 0.05 and qvalue_naive >= 0.05 for both eQTL and caQTL, plus consistent direction of effect between eQTL and caQTL) and retain only the columns needed for downstream analysis (variant_id, gene_id, peak_id, naive_allelic_counts, naive_effect_size, stim_effect_size)"
+      },
+      {
+        "id": "n3",
+        "label": "For each response eQTL-caQTL pair in the subset, compute the naive chromatin QTL effect size as the absolute allelic fold change in accessibility in naive macrophages using either absolute(log2FC_naive) already present in the data or by calculating log2((ALT_allele_accessibility + pseudocount) / (REF_allele_accessibility + pseudocount)) from naive_allelic_counts, and store the per-pair naive_fold_change metric in a new column naive_fc_abs"
+      },
+      {
+        "id": "n4",
+        "label": "Classify each response eQTL-caQTL pair as exhibiting naive chromatin activity if its naive_fc_abs corresponds to a fold change > 1.5, i.e., if naive_fc_abs > log2(1.5); create a boolean column is_primed_naive that is TRUE for pairs meeting this criterion and FALSE otherwise"
+      },
+      {
+        "id": "n5",
+        "label": "Compute the fraction of response eQTL-caQTL pairs with naive chromatin activity as frac_primed = sum(is_primed_naive) / length(is_primed_naive), convert to a percentage value perc_primed = 100 * frac_primed, and then select the closest predefined option by calculating abs(perc_primed - x) for x in {20, 40, 60, 80} and returning the x with the minimum distance as the final reported fraction category"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

@@ -3,6 +3,7 @@ Evaluation utilities and data structures.
 """
 
 import json
+import re
 import time
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -168,6 +169,151 @@ class EvaluationConfig:
             "seed": self.seed,
             "extra_config": self.extra_config,
         }
+
+
+def _find_json_objects(text: str) -> List[str]:
+    """
+    Scan text and return all top-level JSON object strings (balanced braces).
+    Handles nested objects and strings with escaped characters correctly.
+    """
+    results = []
+    depth = 0
+    start = -1
+    in_string = False
+    escape_next = False
+
+    for i, ch in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start != -1:
+                results.append(text[start : i + 1])
+                start = -1
+    return results
+
+
+def extract_dags_from_response(raw_response: str) -> List[Dict[str, Any]]:
+    """
+    Extract all DAG JSON objects from an agent's raw response.
+
+    The iterative DAG system prompt asks the agent to output DAGs as JSON with a
+    ``dag_type`` field (values: ``"reasoning"``, ``"implementation"``,
+    ``"implementation_revision_1"``, …). This function finds every such object in
+    the response, preserving the order in which they appear (initial plan first,
+    revisions last).
+
+    JSON is accepted both inside markdown code fences (``` json ... ```) and as
+    plain objects anywhere in the text.
+
+    Args:
+        raw_response: The full raw text response from the agent.
+
+    Returns:
+        List of DAG dicts, in appearance order, deduplicated by content.
+    """
+    dags: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    def _add(candidate: str) -> None:
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict) and "dag_type" in obj:
+                key = json.dumps(obj, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    dags.append(obj)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # 1. Code fences first (model often wraps JSON in ```json ... ```)
+    for m in re.finditer(r"```(?:json)?\s*([\s\S]*?)\s*```", raw_response):
+        for candidate in _find_json_objects(m.group(1)):
+            _add(candidate)
+
+    # 2. Any remaining top-level JSON objects in the full text
+    for candidate in _find_json_objects(raw_response):
+        _add(candidate)
+
+    return dags
+
+
+def save_dag_traces(
+    results: List["EvaluationResult"],
+    model_name: str,
+    output_dir: Union[str, Path],
+) -> List[str]:
+    """
+    Parse DAG traces from dsbio agent responses and save one JSON file per sample.
+
+    Files are written to ``{output_dir}/dags/`` and named
+    ``{model_slug}_{question_id}_dags.json``, mirroring the evaluation-results
+    naming convention.
+
+    Each file contains:
+    - ``model``: the model name
+    - ``question_id``: the sample index / ID
+    - ``question``: the question text
+    - ``n_revisions``: number of plan revisions found (implementation_revision_*)
+    - ``dags``: list of all extracted DAG objects in appearance order
+
+    Args:
+        results: Evaluation results (only dsbio results are processed).
+        model_name: LiteLLM model name used for the run.
+        output_dir: Root output directory (a ``dags/`` subfolder is created inside).
+
+    Returns:
+        List of file paths written.
+    """
+    dag_dir = Path(output_dir) / "dags"
+    dag_dir.mkdir(parents=True, exist_ok=True)
+
+    model_slug = model_name.replace("/", "_")
+    written: List[str] = []
+
+    for result in results:
+        if result.dataset_name != "dsbio":
+            continue
+        if not result.raw_response:
+            continue
+
+        dags = extract_dags_from_response(result.raw_response)
+        if not dags:
+            continue
+
+        question_id = result.extra_info.get("query_id") or result.extra_info.get("id", "unknown")
+        question = result.extra_info.get("question", result.query)
+        n_revisions = sum(
+            1 for d in dags if str(d.get("dag_type", "")).startswith("implementation_revision")
+        )
+
+        artifact = {
+            "model": model_name,
+            "question_id": question_id,
+            "question": question,
+            "n_revisions": n_revisions,
+            "dags": dags,
+        }
+
+        dag_file = dag_dir / f"{model_slug}_{question_id}_dags.json"
+        with open(dag_file, "w", encoding="utf-8") as f:
+            json.dump(artifact, f, indent=2, ensure_ascii=False)
+        written.append(str(dag_file))
+
+    return written
 
 
 def extract_sample_info(sample: Dict[str, Any]) -> Dict[str, Any]:
@@ -389,7 +535,15 @@ def save_evaluation_results(
     summary_file = output_dir / f"{run_name}_summary.csv"
     pd.DataFrame(summary_data).to_csv(summary_file, index=False)
     file_paths["summary"] = str(summary_file)
-    
+
+    # Extract and save DAG traces for dsbio runs
+    dsbio_results = [r for r in results if r.dataset_name == "dsbio"]
+    if dsbio_results and config is not None:
+        dag_files = save_dag_traces(results, config.model_name, output_dir)
+        if dag_files:
+            file_paths["dag_traces"] = str(output_dir / "dags")
+            print(f"💾 {len(dag_files)} DAG trace(s) saved to {output_dir / 'dags'}")
+
     return file_paths
 
 

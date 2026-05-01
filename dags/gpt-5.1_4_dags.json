@@ -1,0 +1,90 @@
+{
+  "sample_index": 4,
+  "question": "In Slide-seqV2 of the aorta, which gene shows the greatest log-fold change between seurac_clusters 0 (smooth muscle-rich) and seurac_clusters 1 (fibroblast-rich) regions? If cell type annotations are needed, refer to 'author_cell_type'.",
+  "reasoning_dag": {
+    "graph_id": "slideseq_aorta_DE_seurac0_vs_1",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Confirm spatial spot annotations for seurac_clusters and author_cell_type to validate smooth muscle–rich and fibroblast–rich regions"
+      },
+      {
+        "id": "n2",
+        "label": "Subset Slide-seqV2 spots into two groups corresponding to seurac_clusters 0 and 1 with consistent cell type annotations"
+      },
+      {
+        "id": "n3",
+        "label": "Normalize expression data and model spot-level variability to obtain comparable gene expression values between clusters"
+      },
+      {
+        "id": "n4",
+        "label": "Perform differential expression analysis between cluster 0 and cluster 1 spots, computing log-fold changes for all genes"
+      },
+      {
+        "id": "n5",
+        "label": "Identify the gene with the greatest absolute log-fold change and verify that the observed difference is statistically robust and biologically consistent with smooth muscle vs fibroblast identity"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "slideseq_aorta_DE_seurac0_vs_1",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load Slide-seqV2 aorta AnnData object and verify that `seurac_clusters` and `author_cell_type` columns exist in `adata.obs`, then tabulate their cross-distribution to confirm that cluster 0 is smooth muscle–rich and cluster 1 is fibroblast–rich"
+      },
+      {
+        "id": "n2",
+        "label": "Create two AnnData subsets containing only Slide-seqV2 spots from seurac_clusters 0 and 1, optionally restricting to spots whose `author_cell_type` matches smooth muscle or fibroblast annotations"
+      },
+      {
+        "id": "n3",
+        "label": "Apply library size normalization, log1p transformation, and optionally compute spot-level covariates (e.g., total counts, mitochondrial fraction) in the combined subset to obtain comparable expression values between clusters"
+      },
+      {
+        "id": "n4",
+        "label": "Run differential expression between `cluster0_SMC` and `cluster1_FB` groups using a suitable model (e.g., Wilcoxon rank-sum test) to compute log-fold changes and p-values for all genes"
+      },
+      {
+        "id": "n5",
+        "label": "From the differential expression results, select the gene with the largest absolute log-fold change that also passes a chosen FDR threshold, and verify its consistency with known smooth muscle or fibroblast marker biology"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

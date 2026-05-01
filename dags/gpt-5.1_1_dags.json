@@ -1,0 +1,98 @@
+{
+  "sample_index": 1,
+  "question": "Which 2 mesenchymal cell marker genes show co-expression with HES1 in myofibroblast?",
+  "reasoning_dag": {
+    "graph_id": "hes1_myofibroblast_coexpression_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Identify myofibroblast cell subset and confirm annotation in newborn lung scRNA-seq dataset"
+      },
+      {
+        "id": "n2",
+        "label": "Define mesenchymal marker gene set relevant to lung myofibroblasts from literature and dataset features"
+      },
+      {
+        "id": "n3",
+        "label": "Quantify HES1 expression and select HES1-positive myofibroblast cells"
+      },
+      {
+        "id": "n4",
+        "label": "Compute gene-wise co-expression metrics between HES1 and mesenchymal markers within myofibroblasts"
+      },
+      {
+        "id": "n5",
+        "label": "Rank mesenchymal markers by strength and robustness of co-expression with HES1 and select top two genes"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n1",
+        "target": "n3"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "hes1_myofibroblast_coexpression_markers",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load newborn lung CELLxGENE AnnData object and subset cells annotated as myofibroblast or closely related mesenchymal populations (e.g., adata[adata.obs['cell_type'].isin(['myofibroblast','fibroblast-myofibroblast'])]) and verify annotation via canonical markers (e.g., ACTA2, TAGLN, COL1A1) expression"
+      },
+      {
+        "id": "n2",
+        "label": "From lung mesenchymal literature and dataset feature names, construct a curated list of mesenchymal/myofibroblast marker genes (e.g., ACTA2, TAGLN, COL1A1, COL3A1, PDGFRA, PDGFRB, VIM, DCN, LUM, ITGA11, POSTN, THY1) restricted to genes present in adata.var_names for the myofibroblast subset"
+      },
+      {
+        "id": "n3",
+        "label": "Within the myofibroblast subset, extract HES1 expression vector from adata[:, 'HES1'].X, compute per-cell expression, and define HES1-positive myofibroblasts using a threshold (e.g., HES1 counts > 0 or log1p-normalized HES1 > 0) to create a boolean mask stored in adata.obs['HES1_pos']"
+      },
+      {
+        "id": "n4",
+        "label": "For cells in the myofibroblast subset, compute gene-wise co-expression statistics between HES1 and each gene in the mesenchymal marker list by calculating Pearson and Spearman correlation coefficients (and corresponding p-values) using the HES1 expression vector and each marker gene’s expression vector, optionally repeating within the HES1-positive subset to assess robustness, and store results in a pandas DataFrame indexed by gene"
+      },
+      {
+        "id": "n5",
+        "label": "Rank mesenchymal marker genes by a composite co-expression score with HES1 (e.g., average of Pearson and Spearman r, penalized by p-values and requiring minimal expression fraction > 5%) using the correlation results DataFrame, then sort in descending order of the composite score and select the top two marker genes as the final co-expressed mesenchymal markers with HES1 in myofibroblasts"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n1",
+        "target": "n3"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      }
+    ]
+  }
+}

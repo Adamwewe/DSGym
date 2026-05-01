@@ -1,0 +1,106 @@
+{
+  "sample_index": 5,
+  "question": "Which scRNA-seq cell type shows the highest expression correlation with the largest spatial cluster in the aortic Slide-seqV2 dataset? Hint: look at 'author_cell_type' annotation in metadata.",
+  "reasoning_dag": {
+    "graph_id": "aorta_spatial_sc_correlation",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Identify the largest spatial cluster in the aortic Slide-seqV2 data based on spot membership"
+      },
+      {
+        "id": "n2",
+        "label": "Compute average gene expression profile for the largest spatial cluster across all genes"
+      },
+      {
+        "id": "n3",
+        "label": "Group scRNA-seq cells by 'author_cell_type' and compute average gene expression profiles per cell type"
+      },
+      {
+        "id": "n4",
+        "label": "Harmonize gene sets between spatial and scRNA-seq profiles and apply necessary normalization or scaling"
+      },
+      {
+        "id": "n5",
+        "label": "Calculate expression correlation between the largest spatial cluster and each 'author_cell_type' average profile"
+      },
+      {
+        "id": "n6",
+        "label": "Identify the scRNA-seq cell type with the highest correlation and interpret its biological relevance to the aorta"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      },
+      {
+        "source": "n5",
+        "target": "n6"
+      }
+    ]
+  },
+  "implementation_dag": {
+    "graph_id": "aorta_spatial_sc_correlation",
+    "nodes": [
+      {
+        "id": "n1",
+        "label": "Load aortic Slide-seqV2 AnnData object (e.g., spatial_aorta.h5ad) and determine the cluster ID in adata_sp.obs['spatial_cluster'] with the largest number of spots using value_counts().idxmax()"
+      },
+      {
+        "id": "n2",
+        "label": "Subset Slide-seqV2 data to spots in the largest spatial cluster and compute the mean expression vector across these spots for all genes, storing the result as a pandas Series or 1D NumPy array indexed by gene names"
+      },
+      {
+        "id": "n3",
+        "label": "Load aortic scRNA-seq AnnData object (e.g., sc_aorta.h5ad) and group cells by adata_sc.obs['author_cell_type'], then compute per-cell-type average expression for all genes using adata_sc.to_df().groupby('author_cell_type').mean() to obtain a gene-by-cell-type matrix"
+      },
+      {
+        "id": "n4",
+        "label": "Intersect gene sets between the spatial cluster mean profile and the scRNA-seq cell-type mean matrix, subset both to the common genes, and optionally log1p-transform and z-score each profile across genes to harmonize scales"
+      },
+      {
+        "id": "n5",
+        "label": "For each scRNA-seq 'author_cell_type', compute the Pearson correlation coefficient between the largest spatial cluster mean expression vector and the corresponding cell-type mean expression vector across the harmonized gene set, collecting correlations in a pandas Series keyed by cell type"
+      },
+      {
+        "id": "n6",
+        "label": "Identify the 'author_cell_type' with the maximum correlation value from the correlation Series, report this cell type and its correlation coefficient, and annotate it with known aortic biology (e.g., smooth muscle cell, fibroblast, endothelial) based on domain knowledge or existing metadata"
+      }
+    ],
+    "edges": [
+      {
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
+      },
+      {
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "source": "n4",
+        "target": "n5"
+      },
+      {
+        "source": "n5",
+        "target": "n6"
+      }
+    ]
+  }
+}

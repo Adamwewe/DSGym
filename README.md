@@ -104,6 +104,12 @@ dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags true
 # Evaluate on DSBio with DAGs using a specific DAG model
 dsgym eval --model gpt-4o --dataset dsbio --limit 10 --dags true --dag-model gpt-4o-mini
 
+# Create a 20-task subsample and evaluate with DAGs (first time)
+dsgym eval --dataset dsbio --sample-n 20 --dags true --model gpt-4o
+
+# Baseline comparison on the same saved subsample (no resampling)
+dsgym eval --dataset dsbio-sampled --dags false --model gpt-4o
+
 # Evaluate on DAEval
 dsgym eval --model together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput --dataset daeval --backend litellm --limit 10
 
@@ -402,6 +408,82 @@ impl      = generate_implementation_dag(question, context, reasoning, model="gpt
 
 > **Requires** `OPENAI_API_KEY` and the `openai` package (already listed in
 > `pyproject.toml` dependencies).
+
+## Subsampling DSBio
+
+DSBio ships with 90 tasks on the hard split. When you need a smaller, reproducible
+subset — for rapid iteration, cost control, or controlled ablations — use the
+built-in sampling helpers.
+
+### Creating a subsample
+
+**CLI** (`--sample-n` / `--sample-seed`):
+
+```bash
+# Sample 20 tasks, save to data/dsbio_sampled.json, then evaluate with DAGs
+dsgym eval --dataset dsbio --sample-n 20 --dags true --model claude-sonnet-4-6
+
+# Reproducible with a different seed
+dsgym eval --dataset dsbio --sample-n 20 --sample-seed 7 --dags true --model claude-sonnet-4-6
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--sample-n N` | — | Sample *N* tasks from the hard split and save as `dsbio_sampled.json` |
+| `--sample-seed SEED` | `42` | Random seed for fully deterministic sampling |
+
+**Python API:**
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dsbio")
+
+# Creates data/dsbio_sampled.json (same raw format as the source file)
+dataset.create_sample(n=20, seed=42)
+
+# Or write to a custom path
+dataset.create_sample(n=20, seed=42, output_path="./my_sample.json")
+```
+
+`create_sample` raises a clear error if `n` exceeds the dataset size or the
+source file is missing.
+
+### Evaluating on an existing subsample
+
+Once `dsbio_sampled.json` exists, load it directly without resampling using the
+`dsbio-sampled` dataset name. It supports `--dags true/false` exactly like the
+hard split:
+
+```bash
+# Baseline (no DAGs) — same 20 tasks, no resampling
+dsgym eval --dataset dsbio-sampled --dags false --model claude-sonnet-4-6
+
+# DAG-guided run with a different model on the same sample
+dsgym eval --dataset dsbio-sampled --dags true --model gpt-4o
+```
+
+**Python API:**
+
+```python
+samples = DatasetRegistry.load("dsbio").load(split="sampled", limit=None)
+```
+
+### Typical workflows
+
+```bash
+# 1. Create sample + DAG run (first time)
+dsgym eval --dataset dsbio --sample-n 20 --dags true --model claude-sonnet-4-6
+
+# 2. Baseline comparison on the same 20 tasks
+dsgym eval --dataset dsbio-sampled --dags false --model claude-sonnet-4-6
+
+# 3. DAG run on existing sample with a different model
+dsgym eval --dataset dsbio-sampled --dags true --model gpt-4o
+
+# 4. Recreate sample with a different seed
+dsgym eval --dataset dsbio --sample-n 20 --sample-seed 7 --dags true --model claude-sonnet-4-6
+```
 
 ## Key Innovations
 

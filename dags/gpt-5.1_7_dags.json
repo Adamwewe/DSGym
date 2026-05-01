@@ -2,27 +2,27 @@
   "sample_index": 7,
   "question": "Among response eQTL-caQTL pairs, what fraction shows chromatin QTL activity in naive macrophages before stimulation (fold change > 1.5)? Choose among these options: 20%, 40%, 60%, or 80%.",
   "reasoning_dag": {
-    "graph_id": "response_eQTL_caQTL_priming_fraction",
+    "graph_id": "response_eqtl_caqtl_fraction_primed",
     "nodes": [
       {
         "id": "n1",
-        "label": "Clarify that the target set is response eQTL-caQTL pairs and the phenotype of interest is caQTL activity in naive macrophages"
+        "label": "Clarify definition of response eQTL-caQTL pairs and naive chromatin QTL activity metric (fold change > 1.5)"
       },
       {
         "id": "n2",
-        "label": "Interpret 'chromatin QTL activity in naive macrophages' as presence of a significant genotype–chromatin association in unstimulated cells with effect size corresponding to fold change > 1.5"
+        "label": "Subset QTL pairs to those classified as response eQTL-caQTLs based on stimulation-dependent effects"
       },
       {
         "id": "n3",
-        "label": "Recall from enhancer priming studies that a substantial but not majority fraction of response eQTL-caQTL pairs show pre-existing caQTL signal at naive state"
+        "label": "Quantify chromatin QTL effect size in naive macrophages for each response eQTL-caQTL pair"
       },
       {
         "id": "n4",
-        "label": "Map this expected fraction onto the discrete answer choices and select the closest value representing a substantial minority (around one-third to one-half)"
+        "label": "Determine which response eQTL-caQTL pairs exhibit naive chromatin activity by applying the fold change > 1.5 threshold"
       },
       {
         "id": "n5",
-        "label": "Conclude that approximately 40% of response eQTL-caQTL pairs show naive chromatin QTL activity above the fold change threshold"
+        "label": "Compute the fraction of response eQTL-caQTL pairs with naive chromatin activity and map this value to the closest option among 20%, 40%, 60%, or 80%"
       }
     ],
     "edges": [
@@ -45,27 +45,27 @@
     ]
   },
   "implementation_dag": {
-    "graph_id": "response_eQTL_caQTL_priming_fraction",
+    "graph_id": "response_eqtl_caqtl_fraction_primed",
     "nodes": [
       {
         "id": "n1",
-        "label": "Subset paired QTL summary table to response eQTL–caQTL pairs and define the outcome as caQTL effect in naive macrophages"
+        "label": "Load response eQTL-caQTL pair annotations and naive vs stimulated chromatin accessibility summary statistics; define response eQTL-caQTLs as variant–gene–peak triplets with significant eQTL and caQTL effects emerging only after stimulation, and define naive chromatin QTL activity metric as the absolute log2 fold change in chromatin accessibility between alternative and reference alleles in naive macrophages, with activity threshold set at fold change > 1.5 (|log2FC| > log2(1.5))"
       },
       {
         "id": "n2",
-        "label": "Within the subset, identify naive macrophage chromatin QTL activity by selecting pairs with a significant genotype–chromatin association in unstimulated cells and compute corresponding effect size fold changes"
+        "label": "From the loaded QTL dataset, subset to rows corresponding to response eQTL-caQTL pairs by filtering for variant–gene–peak records annotated as stimulation-dependent (e.g., qvalue_stim < 0.05 and qvalue_naive >= 0.05 for both eQTL and caQTL, plus consistent direction of effect between eQTL and caQTL) and retain only the columns needed for downstream analysis (variant_id, gene_id, peak_id, naive_allelic_counts, naive_effect_size, stim_effect_size)"
       },
       {
         "id": "n3",
-        "label": "Compare the observed proportion of response eQTL–caQTL pairs with significant naive caQTL signal and fold change > 1.5 to proportions reported in enhancer priming studies to verify that it represents a substantial but non-majority fraction"
+        "label": "For each response eQTL-caQTL pair in the subset, compute the naive chromatin QTL effect size as the absolute allelic fold change in accessibility in naive macrophages using either absolute(log2FC_naive) already present in the data or by calculating log2((ALT_allele_accessibility + pseudocount) / (REF_allele_accessibility + pseudocount)) from naive_allelic_counts, and store the per-pair naive_fold_change metric in a new column naive_fc_abs"
       },
       {
         "id": "n4",
-        "label": "Map the empirically supported fraction (substantial but not majority, around one-third to one-half) onto the discrete answer options {20, 40, 60, 80} and select the closest matching option"
+        "label": "Classify each response eQTL-caQTL pair as exhibiting naive chromatin activity if its naive_fc_abs corresponds to a fold change > 1.5, i.e., if naive_fc_abs > log2(1.5); create a boolean column is_primed_naive that is TRUE for pairs meeting this criterion and FALSE otherwise"
       },
       {
         "id": "n5",
-        "label": "Report 40% as the estimated fraction of response eQTL–caQTL pairs that exhibit naive macrophage chromatin QTL activity with fold change > 1.5"
+        "label": "Compute the fraction of response eQTL-caQTL pairs with naive chromatin activity as frac_primed = sum(is_primed_naive) / length(is_primed_naive), convert to a percentage value perc_primed = 100 * frac_primed, and then select the closest predefined option by calculating abs(perc_primed - x) for x in {20, 40, 60, 80} and returning the x with the minimum distance as the final reported fraction category"
       }
     ],
     "edges": [

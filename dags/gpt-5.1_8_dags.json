@@ -2,23 +2,23 @@
   "sample_index": 8,
   "question": "How many ATAC-seq peaks are significant caQTLs at 10% FDR using the Benjamini–Hochberg q-value reported by RASQUAL?",
   "reasoning_dag": {
-    "graph_id": "caQTL_FDR10_reasoning",
+    "graph_id": "caQTL_FDR_10pct_reasoning",
     "nodes": [
       {
         "id": "n1",
-        "label": "Confirm that the RASQUAL BH q-value column corresponds to peak-level multiple-testing correction"
+        "label": "Confirm that the BH q-value column from RASQUAL corresponds to peak-level multiple-testing–corrected caQTL statistics"
       },
       {
         "id": "n2",
-        "label": "Decide on the FDR significance threshold and any inclusions or exclusions of peaks"
+        "label": "Define the significance criterion as q-value ≤ 0.10 to represent 10% FDR"
       },
       {
         "id": "n3",
-        "label": "Filter ATAC-seq peaks whose RASQUAL BH q-values are below or equal to the 10% FDR threshold"
+        "label": "Apply the 10% FDR threshold to all ATAC-seq peaks to identify significant caQTL peaks"
       },
       {
         "id": "n4",
-        "label": "Count the number of peaks passing the 10% FDR threshold to obtain the total significant caQTL peaks"
+        "label": "Count the number of ATAC-seq peaks whose q-values pass the 10% FDR threshold"
       }
     ],
     "edges": [
@@ -37,23 +37,23 @@
     ]
   },
   "implementation_dag": {
-    "graph_id": "caQTL_FDR10_reasoning",
+    "graph_id": "caQTL_FDR_10pct_implementation",
     "nodes": [
       {
         "id": "n1",
-        "label": "Load RASQUAL caQTL summary statistics table and verify that the BH q-value column is defined at the peak level (e.g. by checking documentation or column description and confirming one q-value per peak)"
+        "label": "Load RASQUAL caQTL summary statistics table and verify that the BH_qvalue column corresponds to peak-level multiple-testing–corrected caQTL q-values (e.g. by checking RASQUAL documentation and column header/description)"
       },
       {
         "id": "n2",
-        "label": "Set the FDR significance threshold to q <= 0.10 and, if needed, subset the table to the relevant set of ATAC-seq peaks (e.g. autosomes only or primary peak list) without applying any additional statistical filters"
+        "label": "Specify the significance criterion for caQTL peaks as BH_qvalue <= 0.10 to implement a 10% FDR threshold"
       },
       {
         "id": "n3",
-        "label": "Filter the RASQUAL caQTL summary table to retain only rows corresponding to ATAC-seq peaks whose BH q-value column is not missing and is less than or equal to 0.10"
+        "label": "Filter the ATAC-seq peak rows in the RASQUAL summary table to retain only those with BH_qvalue <= 0.10, creating a subset of significant caQTL peaks"
       },
       {
         "id": "n4",
-        "label": "Count the number of unique ATAC-seq peak identifiers in the filtered table as the total number of significant caQTL peaks at 10% FDR"
+        "label": "Count the number of ATAC-seq peaks in the filtered subset (rows with BH_qvalue <= 0.10) and report this count as the number of significant caQTL peaks at 10% FDR"
       }
     ],
     "edges": [

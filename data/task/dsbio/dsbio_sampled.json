@@ -1,0 +1,712 @@
+[
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: scRNA-seq from Ileum, Colon, and Rectum with 7 cell types across tissues. Dataset enables cell type proportion analysis and tissue-specific enrichment testing.",
+    "question": "Perform chi-square test for cell type proportions across the three tissues. Create contingency tables for each cell type. Which cell type shows the most significant tissue-specific enrichment?",
+    "answer": "Enterocyte",
+    "answer_guideline": "Answer must be a single cell type name, case-sensitive.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_02_celltype_enrichment.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Human γδ T cells dataset with 7417 cells and 35477 genes. Dataset contains γδ T cells from various tissues and development stages with metadata including tissue type, classification, donor information, and cell type annotations.",
+    "question": "Perform differential expression analysis between 'Naive' and 'Effector' classification groups using Wilcoxon rank-sum test. Among genes with adjusted p-value < 0.01 and absolute log2 fold change > 1, how many genes are upregulated in Effector cells compared to Naive cells?",
+    "answer": "39",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/ec691f5f-0aac-433c-8f78-e7f4b85a05e0"
+    ],
+    "data": [
+      "/data/bio/scRNA-seq_of_adult_gamma_delta_T_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span",
+      "paper_path": "data/biodata_papers/sciimmunol.adn3954.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/query_2_differential_expression.ipynb"
+    }
+  },
+  {
+    "context": "Cross-modal integration of scRNA-seq and Slide-seqV2 to identify dominant cell-type signatures per spatial spot.",
+    "question": "Which cell type contributes most strongly to the spatial transcriptome variance across arterial segments after integration with scRNA-seq data? If cell type annotations are needed, refer to 'author_cell_type'.",
+    "answer": "Smooth Muscle",
+    "answer_guideline": "Answer must be the exact single cell type name as shown in the metadata (e.g., 'Endothelial'), case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/8f17ac63-aaba-44b5-9b78-60f121da4c2f"
+    ],
+    "data": [
+      "/data/bio/scRNA-seq_of_vascular_tissue.h5ad",
+      "/data/bio/slide-seqV2_analysis_of_aorta.h5ad"
+    ],
+    "metadata": {
+      "domain": "spatial transcriptomics",
+      "paper_title": "A cell and transcriptome atlas of human arterial vasculature",
+      "paper_path": "data/biodata_papers/2024.09.10.612293v3.full.pdf",
+      "reference": "Lines 393-396: SMCs and fibroblasts account for most inter-segmental transcriptomic differences."
+    }
+  },
+  {
+    "context": "Domain: molecular QTL and multi-omics; Dataset: Matched RNA-seq and ATAC-seq from 84 macrophage donors across 4 conditions (naive, IFNg, SL1344 infection, IFNg+SL1344). Dataset includes 35,034 genes and chromatin accessibility peaks with sample metadata.",
+    "question": "What percentage of the top 500 most variable protein-coding genes (by coefficient of variation in RNA expression) also show high promoter variability (CV > 0.25 in ATAC peaks within TSS ±2kb)? Round to 1 decimal place.",
+    "answer": "5.6",
+    "answer_guideline": "Answer must be a numeric percentage rounded to 1 decimal place (e.g., 12.3).",
+    "data_link": [
+      "https://zenodo.org/records/259661"
+    ],
+    "data": [
+      "/data/bio/RNA_cqn_matrix.txt.gz",
+      "/data/bio/RNA_gene_metadata.txt.gz",
+      "/data/bio/ATAC_cqn_matrix.txt.gz",
+      "/data/bio/ATAC_peak_metadata.txt.gz"
+    ],
+    "metadata": {
+      "domain": "genetics",
+      "paper_title": "Shared genetic effects on chromatin and gene expression indicate a role for enhancer priming in immune response",
+      "paper_path": "data/biodata_papers/s41588-018-0046-7.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/genetics_immune_query_05.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Newborn human lung cells with Matrix_Fibroblast and Myofibroblast cells. Dataset enables transcription factor activity inference based on target gene expression.",
+    "question": "Infer transcription factor (TF) activity in different cell types with enrichment scores. For each TF, calculate the mean expression of its target genes as the TF activity score. Among the top 10 most active TFs in Matrix_Fibroblast cells, what are the TFs that are also in the top 10 most active TFs in Myofibroblast cells?",
+    "answer": [
+      "SNAI2",
+      "SMAD3",
+      "TEAD1",
+      "FOXF1",
+      "EGR1",
+      "SRF"
+    ],
+    "answer_guideline": "Answer must be a list of TF names, for example: ['TF1', 'TF2'], case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/28e9d721-6816-48a2-8d0b-43bf0b0c0ebc"
+    ],
+    "data": [
+      "/data/bio/Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells",
+      "paper_path": "data/biodata_papers/genes-15-00298.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/newborn_lung_query_10.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Newborn human lung cells with 5499 cells and 11 cell types. Dataset allows analysis of cell type proportion variance between donors.",
+    "question": "Calculate the coefficient of variation of cell type proportions across the two donors. Which cell type shows the highest coefficient of variation? Report its CV value rounded to 4 decimal places.",
+    "answer": "1.1743",
+    "answer_guideline": "Answer must be a numeric value rounded to 4 decimal places (e.g., 0.1234).",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/28e9d721-6816-48a2-8d0b-43bf0b0c0ebc"
+    ],
+    "data": [
+      "/data/bio/Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells",
+      "paper_path": "data/biodata_papers/genes-15-00298.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/newborn_lung_query_07.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Human γδ T cells dataset with 7417 cells and 35477 genes. Dataset contains γδ T cells from various tissues and development stages with metadata including tissue type, classification, donor information, and cell type annotations.",
+    "question": "Perform trajectory inference using PAGA (Partition-based graph abstraction) with Leiden clustering at resolution 0.5. Calculate the connectivity between 'Naive' and 'Memory' classification groups, using 2000 hvgs and 15 neighbors with 30 pcs when random state is 42). What is the PAGA connectivity value between these groups rounded to 4 decimal places?",
+    "answer": "0.6795",
+    "answer_guideline": "Answer must be a numeric value rounded to 4 decimal places (e.g., 0.1234).",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/ec691f5f-0aac-433c-8f78-e7f4b85a05e0"
+    ],
+    "data": [
+      "/data/bio/scRNA-seq_of_adult_gamma_delta_T_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span",
+      "paper_path": "data/biodata_papers/sciimmunol.adn3954.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/query_6_paga_connectivity.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Human γδ T cells dataset with 7417 cells and 35477 genes. Dataset contains γδ T cells from various tissues and development stages with metadata including tissue type, classification, donor information, and cell type annotations.",
+    "question": "Calculate the Silhouette coefficient for tissue-based clustering using harmony-corrected PCA embeddings. Use the first 30 principal components and tissue as the ground truth labels. What is the mean Silhouette coefficient rounded to 4 decimal places?",
+    "answer": "0.0305",
+    "answer_guideline": "Answer must be a numeric value rounded to 4 decimal places (e.g., 0.1234).",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/ec691f5f-0aac-433c-8f78-e7f4b85a05e0"
+    ],
+    "data": [
+      "/data/bio/scRNA-seq_of_adult_gamma_delta_T_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span",
+      "paper_path": "data/biodata_papers/sciimmunol.adn3954.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/query_1_silhouette_analysis.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-nucleus multiome; Study: Breast tissue enabling cell state heterogeneity analysis within cell types. Dataset contains sufficient cells per type for robust distance calculations.",
+    "question": "Quantify transcriptional heterogeneity within each cell type using the top 1000 variable genes. Which cell type has the most diverse cell states within that population?",
+    "answer": "T cell",
+    "answer_guideline": "Answer must be a cell type name exactly as it appears in the dataset (e.g., fibroblast), case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/77446b76-1c2d-4a71-8e59-0efd4374d98e"
+    ],
+    "data": [
+      "/data/bio/snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-nucleus chromatin accessibility and transcriptomic map of breast tissues of women of diverse genetic ancestry",
+      "paper_path": "data/biodata_papers/s41591-024-03011-9.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/snRNA_numerical_10_cell_heterogeneity.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span (Sci. Immunol. 2024). Dataset: Adult γδ T cells processed scRNA-seq (CELLxGENE collection) with metadata annotations.",
+    "question": "Perform Leiden clustering with resolution=1 after PCA with 30 principal components and using 10 neighbors.",
+    "answer": "22",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      ""
+    ],
+    "data": [
+      "/data/bio/raw_adult_vd_cells_post_qc.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span",
+      "paper_path": "data/biodata_papers/sciimmunol.adn3954.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/pediatric_gdt_pipeline.ipynb"
+    }
+  },
+  {
+    "context": "Domain: molecular QTL; Dataset: Sensory neuron expression and metadata with technical quality metrics. Dataset includes RIN scores, sequencing depth, fibroblast contamination fractions, and other quality indicators that affect QTL detection power.",
+    "question": "Analyze the impact of sample quality on QTL discovery. Calculate the correlation between technical quality metrics (RIN, sequencing depth, fibroblast contamination) and gene detection rate (number of genes with counts > 10). Which technical factor shows the strongest absolute correlation with gene detection? Return the factor name: 'RIN', 'Depth', or 'Fibroblast'.",
+    "answer": "Depth",
+    "answer_guideline": "Answer must be one of: 'RIN', 'Depth', or 'Fibroblast', case-sensitive.",
+    "data_link": [
+      "https://www.ebi.ac.uk/biostudies/studies/S-BSST16"
+    ],
+    "data": [
+      "/data/bio/all_basic_counts.open.txt.gz",
+      "/data/bio/metadata.open.txt",
+      "/data/bio/eqtl.fastqtl.500k.permutations.txt.gz"
+    ],
+    "metadata": {
+      "domain": "genetics",
+      "paper_title": "Molecular and functional variation in iPSC-derived sensory neurons",
+      "paper_path": "data/biodata_papers/s41588-017-0005-8.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/genetics_eqtl_query_06_sample_quality_qtl_power.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-nucleus multiome; Study: Breast tissue dataset with 10 author-annotated cell types including LHS (luminal hormone-sensing) cells.",
+    "question": "Identify genes that are specifically expressed in LHS cells. How many genes are expressed in >50% of LHS cells but <10% of cells in ALL other cell types?",
+    "answer": "5",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/77446b76-1c2d-4a71-8e59-0efd4374d98e"
+    ],
+    "data": [
+      "/data/bio/snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-nucleus chromatin accessibility and transcriptomic map of breast tissues of women of diverse genetic ancestry",
+      "paper_path": "data/biodata_papers/s41591-024-03011-9.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/snRNA_numerical_06_lhs_specific_genes.ipynb"
+    }
+  },
+  {
+    "context": "Identification of genes differentially expressed between two spatially defined domains inferred from transcriptomic clustering.",
+    "question": "In Slide-seqV2 of the aorta, which gene shows the greatest log-fold change between seurac_clusters 0 (smooth muscle-rich) and seurac_clusters 1 (fibroblast-rich) regions? If cell type annotations are needed, refer to 'author_cell_type'.",
+    "answer": "ENSG00000133392",
+    "answer_guideline": "Answer must be a single gene symbol (e.g., 'ENSG00000123456') case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/8f17ac63-aaba-44b5-9b78-60f121da4c2f"
+    ],
+    "data": [
+      "/data/bio/slide-seqV2_analysis_of_aorta.h5ad"
+    ],
+    "metadata": {
+      "domain": "spatial transcriptomics",
+      "paper_title": "A cell and transcriptome atlas of human arterial vasculature",
+      "paper_path": "data/biodata_papers/2024.09.10.612293v3.full.pdf",
+      "reference": "Lines 178-185: MYH11 is a canonical smooth muscle marker distinguishing SMC-rich regions."
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: Multi-tissue GI tract scRNA-seq enabling gene expression correlation analysis. Dataset allows examination of conserved expression patterns across anatomical regions.",
+    "question": "For TA cells, calculate Pearson correlation of mean gene expression between each tissue pair. Only consider genes with mean expression > 1.0 in all three tissues. Calculate all three pairwise correlations. What is the mean of these three correlation coefficients?",
+    "answer": 0.976,
+    "answer_guideline": "Answer must be a number rounded to 3 decimal places.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_08_expression_correlation.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: scRNA-seq data from three human GI tract regions (Ileum: 5,980 cells, Colon: 4,329 cells, Rectum: 3,797 cells) with 7 cell types (Enterocyte, Progenitor, Goblet, TA, Stem Cell, Paneth-like, Enteroendocrine). Samples from adenocarcinoma and neuroendocrine carcinoma patients with donor and sex metadata.",
+    "question": "Identify genes with highest cross-tissue variance in Enterocytes. Filter to genes expressed (mean > 0.5) in all three tissues and perform Kruskal-Wallis test with FDR correction (< 0.05). What are the top 5 gene symbols with highest variance with respect to tissues?",
+    "answer": [
+      "PRAP1",
+      "ADIRF",
+      "PIGR",
+      "FABP2",
+      "ANPEP"
+    ],
+    "answer_guideline": "Answer must be a list of 5 gene symbols, for example: ['GENE1', 'GENE2', 'GENE3', 'GENE4', 'GENE5'], case-sensitive.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_01_cross_tissue_de.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Newborn human lung cells with 349 Macrophage and 190 T_cell cells from 2 donors. Dataset enables pseudobulk differential expression analysis.",
+    "question": "Create pseudobulk profiles. Using statistical testing for differential expression analysis, compare Macrophage vs T_cell gene expression. How many genes show significant differential expression (FDR < 0.05 and absolute log2FC > 1.5)?",
+    "answer": "0",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/28e9d721-6816-48a2-8d0b-43bf0b0c0ebc"
+    ],
+    "data": [
+      "/data/bio/Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells",
+      "paper_path": "data/biodata_papers/genes-15-00298.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/newborn_lung_query_06.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Newborn human lung cells with 820 Myofibroblast cells. Dataset allows analysis of gene expression heterogeneity within a cell type.",
+    "question": "Calculate the Gini coefficient for each gene within Myofibroblast cells to measure expression heterogeneity. How many genes indicating high heterogeneity in their expression with threshold 0.3?",
+    "answer": "491",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/28e9d721-6816-48a2-8d0b-43bf0b0c0ebc"
+    ],
+    "data": [
+      "/data/bio/Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells",
+      "paper_path": "data/biodata_papers/genes-15-00298.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/newborn_lung_query_08.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-nucleus multiome; Study: Breast fibroblasts enabling co-expression network analysis. Dataset contains 6,526 fibroblast cells with comprehensive gene expression profiles.",
+    "question": "In fibroblasts, construct a gene co-expression network using the top 1000 variable genes. Apply correlation threshold of |r| > 0.4 to define edges. Identify co-expression modules using the Louvain community detection algorithm. Within the largest module, which gene has the highest eigenvector centrality?",
+    "answer": "ENSG00000151388",
+    "answer_guideline": "Answer must be a single gene ID (e.g., ENSG00000123456), case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/77446b76-1c2d-4a71-8e59-0efd4374d98e"
+    ],
+    "data": [
+      "/data/bio/snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-nucleus chromatin accessibility and transcriptomic map of breast tissues of women of diverse genetic ancestry",
+      "paper_path": "data/biodata_papers/s41591-024-03011-9.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/snRNA_numerical_05_coexpression_hub.ipynb"
+    }
+  },
+  {
+    "context": "Domain: molecular QTL; Dataset: eQTL results with SNP-gene distance information. Dataset enables modeling of the relationship between regulatory element distance and effect size, identifying genes that deviate from expected distance-decay patterns.",
+    "question": "Model the distance-effect size relationship for cis-eQTLs (<1Mb). Fit a linear model predicting log10(effect size) from log10(distance). Among genes with positive residuals > 2 standard deviations, which gene shows the largest deviation? Return the gene ID.",
+    "answer": "ENSG00000160221",
+    "answer_guideline": "Answer must be a single gene ID (e.g., ENSG00000123456), case-sensitive.",
+    "data_link": [
+      "https://www.ebi.ac.uk/biostudies/studies/S-BSST16"
+    ],
+    "data": [
+      "/data/bio/eqtl.fastqtl.500k.permutations.txt.gz"
+    ],
+    "metadata": {
+      "domain": "genetics",
+      "paper_title": "Molecular and functional variation in iPSC-derived sensory neurons",
+      "paper_path": "data/biodata_papers/s41588-017-0005-8.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/genetics_eqtl_query_07_distance_effect_size.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Newborn human lung cells with 5499 cells and 29371 genes. Dataset contains 1119 endothelial cells with gene expression profiles.",
+    "question": "Identify co-expression modules in endothelial cells using hierarchical clustering on gene-gene correlation matrix. Using Pearson correlation on the top 500 most variable genes, cut the dendrogram at height 0.7 to define modules. How many genes belong to the largest co-expression module?",
+    "answer": "19",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/28e9d721-6816-48a2-8d0b-43bf0b0c0ebc"
+    ],
+    "data": [
+      "/data/bio/Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells",
+      "paper_path": "data/biodata_papers/genes-15-00298.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/newborn_lung_query_04.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: Multi-tissue GI tract scRNA-seq enabling regional specificity analysis. Dataset allows identification of tissue-specific gene expression patterns using coefficient of variation.",
+    "question": "Calculate regional specificity score for each gene across all cell types. For each tissue, score = mean_expression_tissue / mean_of_all_tissues. Calculate coefficient of variation of these three scores. Among genes with total mean expression > 0.5, what are the top 5 gene symbols with highest CV?",
+    "answer": [
+      "PRAC1",
+      "CYP3A4",
+      "RBP2",
+      "ALDOB",
+      "DPEP1"
+    ],
+    "answer_guideline": "Answer must be a list of 5 gene symbols, for example: ['GENE1', 'GENE2', 'GENE3', 'GENE4', 'GENE5'], case-sensitive.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_10_regional_specificity.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-nucleus multiome (RNA+ATAC); Study: Breast tissue dataset with both RNA and ATAC quality metrics including TSS enrichment and feature counts.",
+    "question": "Identify high-quality cells with excellent transcription start site accessibility and RNA complexity: TSS.enrichment > 2 AND nFeature_RNA > 1000. How many cells meet both criteria?",
+    "answer": "33837",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/77446b76-1c2d-4a71-8e59-0efd4374d98e"
+    ],
+    "data": [
+      "/data/bio/snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-nucleus chromatin accessibility and transcriptomic map of breast tissues of women of diverse genetic ancestry",
+      "paper_path": "data/biodata_papers/s41591-024-03011-9.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/snRNA_numerical_05_high_quality_cells.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: Ileum scRNA-seq with disease annotations (adenocarcinoma and neuroendocrine carcinoma). Dataset enables disease-specific differential expression analysis with multiple testing correction.",
+    "question": "In Ileum Progenitor cells, compare adenocarcinoma vs neuroendocrine carcinoma. Filter genes with: |log2FC| > 1.5, FDR < 0.01 (Mann-Whitney U test with Benjamini-Hochberg correction), mean expression > 0.5 in both disease types. What is the median absolute log2 fold change of significant genes (rounded to 2 decimals)?",
+    "answer": 1.57,
+    "answer_guideline": "Answer must be a number rounded to 2 decimal places.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_05_disease_comparison.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-nucleus multiome; Study: Breast epithelial identity genes including ESR1, FOXA1, and GATA3. Dataset includes LHS and LASP cell populations.",
+    "question": "Among the three genes ESR1, FOXA1, and GATA3, which gene shows the highest mean RNA expression in LHS cells compared to LASP cells?",
+    "answer": "ESR1",
+    "answer_guideline": "Answer must be one of 'ESR1', 'FOXA1', or 'GATA3' exactly as shown, case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/77446b76-1c2d-4a71-8e59-0efd4374d98e"
+    ],
+    "data": [
+      "/data/bio/snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-nucleus chromatin accessibility and transcriptomic map of breast tissues of women of diverse genetic ancestry",
+      "paper_path": "data/biodata_papers/s41591-024-03011-9.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/snRNA_factorial_01_highest_expression_lhs.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: GI tract scRNA-seq with QC metrics including percent_mito for each cell. Dataset enables cell type-specific quality control analysis across tissues.",
+    "question": "For cell types present in all three tissues, calculate the coefficient of variation of percent_mito across tissues. Which cell type shows the highest CV for percent_mito?",
+    "answer": "Enterocyte",
+    "answer_guideline": "Answer must be a single cell type name, case-sensitive.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_07_qc_metrics_celltype.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells (Genes 2024). Dataset: Newborn human lung cells scRNA-seq (CELLxGENE collection).",
+    "question": "Which 4 immune cell markers distinguish macrophages (Cluster 7) from T cells (Cluster 9) in the newborn lung?",
+    "answer": [
+      "CST3",
+      "FTL",
+      "HLA-DRA",
+      "AIF1"
+    ],
+    "answer_guideline": "Answer must be a list of gene symbols, for example: ['GENE1', 'GENE2'], case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/28e9d721-6816-48a2-8d0b-43bf0b0c0ebc"
+    ],
+    "data": [
+      "/data/bio/Single_cell_transcriptomic_profiling_identifies_molecular_phenotypes_of_newborn_human_lung_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-Cell Transcriptomic Profiling Identifies Molecular Phenotypes of Newborn Human Lung Cells",
+      "paper_path": "data/biodata_papers/genes-15-00298.pdf",
+      "reference": "Page 6-7: 'Immune cells (n = 618) were defined by expression of leukocyte and lymphocyte cell markers PTPRC, CD8A, CD19, and CD3E... macrophages (Cluster 7, n = 349), T cells (Cluster 9, n = 190)'"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Human γδ T cells dataset with 7417 cells and 35477 genes. Dataset contains γδ T cells from various tissues and development stages with metadata including tissue type, classification, donor information, and cell type annotations.",
+    "question": "Perform gene set enrichment analysis (GSEA) on differential genes between 'fetal' and 'adult' development stages using the Hallmark gene sets. Among significantly enriched pathways (FDR < 0.05), how many are upregulated in adult compared to fetal cells?",
+    "answer": "0",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/ec691f5f-0aac-433c-8f78-e7f4b85a05e0"
+    ],
+    "data": [
+      "/data/bio/scRNA-seq_of_adult_gamma_delta_T_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span",
+      "paper_path": "data/biodata_papers/sciimmunol.adn3954.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/query_9_gsea_analysis.ipynb"
+    }
+  },
+  {
+    "context": "Domain: spatial transcriptomics; Dataset: Slide-seqV2 analysis of aorta with 6,142 spots. Dataset enables decomposition of gene expression variance into spatial and non-spatial components.",
+    "question": "Using k-NN regression (k=30 neighbors, distance-weighted), predict ACTA2 expression from spatial coordinates alone. What percentage of ACTA2 expression variance is explained by spatial location (R² score × 100)? Round to 1 decimal place.",
+    "answer": "100.0",
+    "answer_guideline": "Answer must be a numeric percentage rounded to 1 decimal place (e.g., 12.3).",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/8f17ac63-aaba-44b5-9b78-60f121da4c2f"
+    ],
+    "data": [
+      "/data/bio/slide-seqV2_analysis_of_aorta.h5ad"
+    ],
+    "metadata": {
+      "domain": "spatial transcriptomics",
+      "paper_title": "A cell and transcriptome atlas of human arterial vasculature",
+      "paper_path": "data/biodata_papers/2024.09.10.612293v3.full.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/spatial_query_05_spatial_variance_explained.ipynb"
+    }
+  },
+  {
+    "context": "Domain: molecular QTL; Dataset: RASQUAL eQTL results providing allele-specific expression information. Dataset includes effect size estimates, chi-square statistics, overdispersion parameters, and mapping quality metrics that enable calculation of genetic variance explained.",
+    "question": "Calculate the proportion of gene expression variance explained by genetic effects using RASQUAL results. For each gene with significant eQTL (q < 0.05), calculate the variance explained as chi_sq / (chi_sq + overdispersion). What is the maximum proportion of variance explained across all genes? Round to 4 decimal places.",
+    "answer": "0.9989",
+    "answer_guideline": "Answer must be a numeric value rounded to 4 decimal places (e.g., 0.1234).",
+    "data_link": [
+      "https://www.ebi.ac.uk/biostudies/studies/S-BSST16"
+    ],
+    "data": [
+      "/data/bio/eqtl.rasqual.500k.txt.gz"
+    ],
+    "metadata": {
+      "domain": "genetics",
+      "paper_title": "Molecular and functional variation in iPSC-derived sensory neurons",
+      "paper_path": "data/biodata_papers/s41588-017-0005-8.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/genetics_eqtl_query_05_allele_specific_expression.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell transcriptomics; Study: Human γδ T cells dataset with 7417 cells and 35477 genes. Dataset contains γδ T cells from various tissues and development stages with metadata including tissue type, classification, donor information, and cell type annotations.",
+    "question": "Compute cell-cell communication potential using CellPhoneDB methodology by testing the provided ligand-receptor pairs (TNF_TNFRSF1A, TNF_TNFRSF1B, IL6_IL6R, IL1B_IL1R1) with 10 permutations, counting significant interactions (p < 0.05) between different classification groups in each tissue, and report the maximum number observed in any single tissue.",
+    "answer": "0",
+    "answer_guideline": "Answer must be a single numeric value (e.g., 42) with no units or text.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/ec691f5f-0aac-433c-8f78-e7f4b85a05e0"
+    ],
+    "data": [
+      "/data/bio/scRNA-seq_of_adult_gamma_delta_T_cells.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Human γδ T cells in diverse tissues exhibit site-specific maturation dynamics across the life span",
+      "paper_path": "data/biodata_papers/sciimmunol.adn3954.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/query_10_cellphone_analysis.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: Multi-tissue GI tract scRNA-seq with sex metadata. Dataset enables sex-biased gene expression analysis using effect size calculations across tissues.",
+    "question": "Identify sex-biased genes in Stem Cells across all three tissues combined. Calculate Cohen's d effect size for male vs female expression. Filter: mean expression > 0.8 in at least one sex, Mann-Whitney U p-value < 0.001, present in at least 2 tissues (mean > 0.1). What gene symbol has the highest absolute Cohen's d?",
+    "answer": "ENSG00000229807",
+    "answer_guideline": "Answer must be a single gene symbol or gene ID, case-sensitive.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_04_sex_bias_stem.ipynb"
+    }
+  },
+  {
+    "context": "Domain: chromatin QTL geometry. Dataset: RASQUAL caQTLs and consensus ATAC peak coordinates.",
+    "question": "What proportion of significant caQTL lead SNPs lie within 1,000 bp of their peak center? Choose from these approximate options: 20%, 50%, 75%, or 100%.",
+    "answer": "100%",
+    "answer_guideline": "Answer must be one of the provided options exactly as shown, case-sensitive. For example: '50%'.",
+    "data_link": [
+      "https://www.ebi.ac.uk/biostudies/studies/S-BSST16"
+    ],
+    "data": [
+      "/data/bio/atac_qtl.rasqual.1k.txt.gz",
+      "/data/bio/atac_consensus_peaks.txt.gz"
+    ],
+    "metadata": {
+      "domain": "genetics",
+      "paper_title": "Molecular and functional variation in iPSC-derived sensory neurons",
+      "paper_path": "data/biodata_papers/s41588-017-0005-8.pdf",
+      "reference": "Methods state peaks were tested “within 1 kb of the center of the peak.” Expect ~all lead SNPs to be ≤1 kb from peak center."
+    }
+  },
+  {
+    "context": "Domain: single-cell RNA-seq; Dataset: GI tract scRNA-seq with multiple cell types. Dataset enables identification of tissue-specific marker genes using combined specificity and fold-change metrics.",
+    "question": "For Goblet cells, calculate specificity score: (mean_ileum / sum_of_all_means) × log2_fold_change_vs_others. Filter: mean expression > 1.0 in Ileum, Wilcoxon p-value < 0.01. What are the top 3 gene symbols with highest specificity score?",
+    "answer": [
+      "RBP2",
+      "ALDOB",
+      "APOA1"
+    ],
+    "answer_guideline": "Answer must be a list of 3 gene symbols, for example: ['GENE1', 'GENE2', 'GENE3'], case-sensitive.",
+    "data_link": [
+      " https://cellxgene.cziscience.com/collections/ff668d5d-5b3f-49ee-a007-ff0664bf35ec"
+    ],
+    "data": [
+      "/data/bio/Ileum.h5ad",
+      "/data/bio/Colon.h5ad",
+      "/data/bio/Rectum.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell",
+      "paper_title": "Single-cell transcriptome analysis reveals differential nutrient absorption functions in human intestine",
+      "paper_path": "data/biodata_papers/jem_20191130.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/ileum_colon_rectum_query_03_tissue_markers.ipynb"
+    }
+  },
+  {
+    "context": "Domain: spatial transcriptomics; Dataset: Slide-seqV2 analysis of aorta with 6,142 spots including 658 macrophages and 257 lymphocytes. Dataset enables spatial interaction enrichment analysis.",
+    "question": "For macrophages, count lymphocyte neighbors in k=10 nearest neighbors. Calculate enrichment score. Additionally, perform 1000 permutations to assess significance. What is the enrichment score rounded to 2 decimal places?",
+    "answer": "1.23",
+    "answer_guideline": "Answer must be a numeric value rounded to 2 decimal places (e.g., 1.01).",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/8f17ac63-aaba-44b5-9b78-60f121da4c2f"
+    ],
+    "data": [
+      "/data/bio/slide-seqV2_analysis_of_aorta.h5ad"
+    ],
+    "metadata": {
+      "domain": "spatial transcriptomics",
+      "paper_title": "A cell and transcriptome atlas of human arterial vasculature",
+      "paper_path": "data/biodata_papers/2024.09.10.612293v3.full.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/spatial_query_13_neighbor_enrichment.ipynb"
+    }
+  },
+  {
+    "context": "Domain: single-nucleus multiome (RNA+ATAC); Study: Breast tissue multiome dataset with 51,367 nuclei and 35,477 genes. Dataset contains 8 major cell types including fibroblasts, endothelial cells, T cells, macrophages, and multiple epithelial subtypes with comprehensive metadata.",
+    "question": "Among the top 1000 most variable genes, calculate the regulatory potential score for genes in fibroblasts by combining: (1) cell-type specificity, (2) expression coefficient of variation, (3) correlation network degree centrality (using r>0.3 threshold with top 500 variable genes). The regulatory potential score is the product of these three normalized metrics. Which gene has the highest regulatory potential score in fibroblasts?",
+    "answer": "ENSG00000254762",
+    "answer_guideline": "Answer must be a single gene ID (e.g., ENSG00000123456), case-sensitive.",
+    "data_link": [
+      "https://cellxgene.cziscience.com/collections/77446b76-1c2d-4a71-8e59-0efd4374d98e"
+    ],
+    "data": [
+      "/data/bio/snRNA-seq_analyses_of_breast_tissues_of_healthy_women_of_diverse_genetic_ancestry.h5ad"
+    ],
+    "metadata": {
+      "domain": "single-cell biology",
+      "paper_title": "Single-nucleus chromatin accessibility and transcriptomic map of breast tissues of women of diverse genetic ancestry",
+      "paper_path": "data/biodata_papers/s41591-024-03011-9.pdf",
+      "reference": "",
+      "notebook_path": "bio_code/snRNA_hard_01_regulatory_potential.ipynb"
+    }
+  }
+]

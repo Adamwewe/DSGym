@@ -12,8 +12,6 @@ from ..utils import apply_limit_and_start, validate_file_exists, create_standard
 from ..prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_DAG
 from dsgym.datasets.config import get_task_path, RAW_DATA_DIR
 
-from dsgym.datasets.dag import ImplementationDAG, ReasoningDAG
-
 
 DSBIO_INSTRUCTIONS = """
 1. Load and explore the provided biological datasets using appropriate Python libraries, especially their metadata information.
@@ -27,60 +25,11 @@ DSBIO_INSTRUCTIONS = """
 """
 
 
-def _dag_flow_string(nodes: list) -> str:
-    """Render nodes as a linear flow: [n1: label] → [n2: label] → ..."""
-    parts = [f"[{n.id}: {n.label}]" for n in nodes]
-    return " → ".join(parts)
-
-
-def _format_dag_section(
-    reasoning_dag: Optional["ReasoningDAG"],
-    implementation_dag: Optional["ImplementationDAG"],
-) -> str:
-    """
-    Format reasoning and implementation DAGs into a prompt section.
-
-    Surfaces the plan prominently so it anchors attention before the question
-    details. Uses a flow-string so the graph topology is immediately readable,
-    and a numbered checklist so the model can track progress step-by-step.
-    """
-    lines: List[str] = []
-    lines.append("=" * 60)
-    lines.append("EXPERT ANALYSIS PLAN")
-    lines.append("=" * 60)
-
-    if reasoning_dag:
-        n = len(reasoning_dag.nodes)
-        lines.append(f"\nANALYTICAL LOGIC ({n} steps):")
-        lines.append(_dag_flow_string(reasoning_dag.nodes))
-        lines.append("")
-        for i, node in enumerate(reasoning_dag.nodes, 1):
-            lines.append(f"  {i}. {node.label}")
-        lines.append("")
-
-    if implementation_dag:
-        n = len(implementation_dag.nodes)
-        lines.append(f"EXECUTION STEPS — follow these {n} steps in strict order:")
-        lines.append(_dag_flow_string(implementation_dag.nodes))
-        lines.append("")
-        for i, node in enumerate(implementation_dag.nodes, 1):
-            lines.append(f"  Step {i}/{n}: {node.label}")
-        lines.append("")
-        lines.append(
-            "In each <reasoning> block, start with: [Step N/M — <step label>]"
-        )
-
-    lines.append("=" * 60)
-    return "\n".join(lines)
-
-
 def create_dsbio_prompt(
     question: str,
     context: str,
     data_paths: Dict[str, List[str]],
     metadata: Dict[str, Any],
-    reasoning_dag: Optional["ReasoningDAG"] = None,
-    implementation_dag: Optional["ImplementationDAG"] = None,
 ) -> str:
     virtual_paths = data_paths['virtual']
     dataset_locations = '\n'.join(virtual_paths) if virtual_paths else 'No dataset provided'
@@ -93,13 +42,10 @@ def create_dsbio_prompt(
         metadata_lines.append(f"ANSWER GUIDELINES: {guidelines}")
     metadata_section = '\n'.join(metadata_lines)
 
-    # Surface the DAG plan first so it anchors attention before question details.
-    if reasoning_dag is not None or implementation_dag is not None:
-        dag_block = _format_dag_section(reasoning_dag, implementation_dag) + "\n\n"
-    else:
-        dag_block = ""
+    prompt = f"""QUESTION: {question}
 
-    prompt = f"""{dag_block}QUESTION: {question}
+CONTEXT:
+{context}
 
 {metadata_section}
 
@@ -132,40 +78,31 @@ class DSBioDataset(BaseDataset):
         super().__init__(data_dir=data_dir, virtual_data_root=virtual_data_root, **kwargs)
     
     def load(
-        self, 
-        split: str = "hard", 
+        self,
+        split: str = "hard",
         limit: Optional[int] = None,
         start_index: int = 0,
         random_sample: bool = False,
         generate_dags: bool = True,
-        model: str = "gpt-4o",
-        dag_output_dir: Optional[str] = "dags",
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
         Load DSBio dataset.
-        
+
         Args:
             split: Dataset split ("hard" or "easy")
             limit: Maximum number of samples to load
             start_index: Starting index for data selection
             random_sample: If True, randomly sample from dataset
-            generate_dags: If True, generate reasoning and implementation DAGs for each
-                sample during loading. The DAGs are injected into the prompt as an
-                analysis plan and a set of Python function stubs (tools) that the agent
-                should implement and call in sequence — consistent with the tool interface
-                used by other datasets in the repo.
-            model: LiteLLM-compatible model used for DAG generation (default: "gpt-4o").
-            dag_output_dir: If provided (and generate_dags is True), each sample's
-                reasoning and implementation DAGs are saved as a JSON file under this
-                directory using the filename pattern ``{sample_index}_dags.json``.
+            generate_dags: If True, switch to the iterative DAG system prompt so the
+                agent self-generates and self-revises its reasoning and implementation
+                DAGs inline during solving. No upfront API calls are made.
             **kwargs: Additional loading parameters
-            
+
         Returns:
             List of dataset samples
         """
         # Determine file path based on split
-        # The dataset ships as a single file; "dsbio.json" is the hard split.
         if split == "hard":
             for candidate in ("dsbio-hard.json", "dsbio.json"):
                 candidate_path = os.path.join(self.data_dir, candidate)
@@ -174,11 +111,12 @@ class DSBioDataset(BaseDataset):
                     break
             else:
                 file_path = os.path.join(self.data_dir, "dsbio-hard.json")  # will trigger FileNotFoundError below
+        elif split == "sampled":
+            file_path = os.path.join(self.data_dir, "dsbio_sampled.json")
         elif split == "easy":
-            # Easy split not implemented yet
             raise NotImplementedError("Easy split is not implemented yet")
         else:
-            raise ValueError(f"Invalid split: {split}. Available splits: ['hard', 'easy']")
+            raise ValueError(f"Invalid split: {split}. Available splits: ['hard', 'sampled', 'easy']")
 
         # Validate file exists
         validate_file_exists(file_path, f"DSBio {split} dataset")
@@ -194,17 +132,6 @@ class DSBioDataset(BaseDataset):
 
         samples = []
 
-        # Import DAG generators once if DAG generation is requested.
-        if generate_dags:
-            from dsgym.datasets.dag_generator import (
-                generate_reasoning_dag,
-                generate_implementation_dag,
-            )
-
-        # Prepare DAG output directory if requested.
-        if generate_dags and dag_output_dir:
-            os.makedirs(dag_output_dir, exist_ok=True)
-        
         # Convert to standard format
         for idx, item in enumerate(raw_data):
             original_index = start_index + idx
@@ -234,45 +161,12 @@ class DSBioDataset(BaseDataset):
                 virtual_data_root=self.virtual_data_root
             )
 
-            # Generate DAGs for this question if requested.
-            reasoning_dag = None
-            implementation_dag = None
-            if generate_dags:
-                try:
-                    reasoning_dag = generate_reasoning_dag(
-                        question, context, model=model
-                    )
-                    implementation_dag = generate_implementation_dag(
-                        question, context, reasoning_dag, model=model
-                    )
-                except Exception as exc:
-                    print(
-                        f"⚠️  DAG generation failed for sample {original_index} "
-                        f"({type(exc).__name__}: {exc}). Continuing without DAGs."
-                    )
-
-            # Save DAG artifacts to disk if an output directory was specified.
-            if generate_dags and dag_output_dir and (reasoning_dag is not None or implementation_dag is not None):
-                dag_artifact = {
-                    "sample_index": original_index,
-                    "question": question,
-                    "reasoning_dag": reasoning_dag.model_dump() if reasoning_dag is not None else None,
-                    "implementation_dag": implementation_dag.model_dump() if implementation_dag is not None else None,
-                }
-                model_slug = model.replace("/", "_")
-                dag_file = os.path.join(dag_output_dir, f"{model_slug}_{original_index}_dags.json")
-                with open(dag_file, "w", encoding="utf-8") as f:
-                    json.dump(dag_artifact, f, indent=2, ensure_ascii=False)
-                print(f"💾 DAG artifact saved: {dag_file}")
-
             # Create prompt using dsbio format
             prompt_content = create_dsbio_prompt(
                 question,
                 context,
                 data_paths,
                 metadata,
-                reasoning_dag=reasoning_dag,
-                implementation_dag=implementation_dag,
             )
 
             ground_truth = str(item['answer'])
@@ -287,11 +181,9 @@ class DSBioDataset(BaseDataset):
                 'source': 'dsbio',
                 'split': split,
                 'id': str(original_index),
-                'reasoning_dag': reasoning_dag.model_dump() if reasoning_dag is not None else None,
-                'implementation_dag': implementation_dag.model_dump() if implementation_dag is not None else None,
             }
             
-            # Select system prompt: use DAG-aware prompt when DAGs were generated.
+            # Select system prompt: iterative DAG prompt when generate_dags is set.
             active_system_prompt = SYSTEM_PROMPT_DAG if generate_dags else SYSTEM_PROMPT
 
             # Create standardized sample
@@ -325,12 +217,70 @@ class DSBioDataset(BaseDataset):
                 'description': 'Dataset for single-cell transcriptomics and computational biology tasks',
                 'data_dir': self.data_dir,
                 'format': 'json',
-                'splits': ['hard', 'easy'],
+                'splits': ['hard', 'sampled', 'easy'],
                 'fields': ['context', 'question', 'answer', 'data', 'metadata'],
                 'source': 'bio'
             }
-        
         return self._metadata
+
+    def create_sample(
+        self,
+        n: int,
+        seed: int = 42,
+        output_path: Optional[str] = None,
+    ) -> str:
+        """
+        Randomly sample ``n`` tasks from the hard split and save them as
+        ``dsbio_sampled.json`` for reproducible repeated experiments.
+
+        The saved file uses the same raw JSON format as the source dataset so it
+        can be loaded via ``load(split="sampled")``.
+
+        Args:
+            n:           Number of tasks to sample.
+            seed:        Random seed for reproducible sampling (default: 42).
+            output_path: Where to write the file. Defaults to
+                         ``{data_dir}/dsbio_sampled.json``.
+
+        Returns:
+            Absolute path to the written file.
+        """
+        import random
+
+        # Locate the hard split source file
+        for candidate in ("dsbio-hard.json", "dsbio.json"):
+            candidate_path = os.path.join(self.data_dir, candidate)
+            if os.path.exists(candidate_path):
+                source_path = candidate_path
+                break
+        else:
+            raise FileNotFoundError(
+                f"Hard split not found in {self.data_dir}. "
+                "Expected dsbio-hard.json or dsbio.json."
+            )
+
+        with open(source_path, "r", encoding="utf-8") as f:
+            all_data = json.load(f)
+
+        if n > len(all_data):
+            raise ValueError(
+                f"Requested sample size {n} exceeds dataset size {len(all_data)}."
+            )
+
+        rng = random.Random(seed)
+        sampled = rng.sample(all_data, n)
+
+        if output_path is None:
+            output_path = os.path.join(self.data_dir, "dsbio_sampled.json")
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(sampled, f, indent=2, ensure_ascii=False)
+
+        print(
+            f"✅ Sampled {n} tasks (seed={seed}) from {os.path.basename(source_path)} "
+            f"→ {output_path}"
+        )
+        return output_path
     
     def get_metrics(self) -> List[str]:
         """Get metrics for DSBio dataset."""

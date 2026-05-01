@@ -6,23 +6,23 @@
     "nodes": [
       {
         "id": "n1",
-        "label": "Identify and extract Cluster 7 (macrophages) and Cluster 9 (T cells) cells from the annotated newborn lung scRNA-seq dataset"
+        "label": "Identify clusters corresponding to macrophages (7) and T cells (9) using provided cell type annotations in the newborn lung dataset"
       },
       {
         "id": "n2",
-        "label": "Perform appropriate normalization and covariate correction on expression data for the selected clusters to make them comparable"
+        "label": "Subset the expression matrix to cells in macrophage Cluster 7 and T cell Cluster 9 for focused comparison"
       },
       {
         "id": "n3",
-        "label": "Run differential expression analysis between Cluster 7 and Cluster 9 to identify genes enriched in macrophages versus T cells"
+        "label": "Perform differential expression analysis between macrophage Cluster 7 and T cell Cluster 9 to find significantly upregulated genes in each"
       },
       {
         "id": "n4",
-        "label": "Filter DE genes for canonical immune lineage markers that robustly distinguish macrophages from T cells"
+        "label": "Intersect differentially expressed genes with known canonical immune markers to identify macrophage-specific and T cell-specific candidates"
       },
       {
         "id": "n5",
-        "label": "Rank candidate markers by specificity and expression magnitude and select four macrophage and four T cell markers that best discriminate the clusters"
+        "label": "Rank candidate markers by effect size, specificity, and expression robustness to select 2 macrophage and 2 T cell markers that best distinguish the clusters"
       }
     ],
     "edges": [
@@ -49,23 +49,23 @@
     "nodes": [
       {
         "id": "n1",
-        "label": "Load newborn lung CELLxGENE AnnData object and subset cells annotated as Cluster 7 (macrophages) and Cluster 9 (T cells) into a new AnnData"
+        "label": "Load newborn lung CELLxGENE AnnData object and identify clusters 7 and 9 using cell_type and cluster annotations in adata.obs"
       },
       {
         "id": "n2",
-        "label": "On the subset AnnData, perform log1p CPM normalization, scale expression, and regress out n_counts and percent_mito to obtain covariate-corrected expression values"
+        "label": "Subset AnnData to cells where cluster_id == '7' (macrophages) or cluster_id == '9' (T cells) and create a new AnnData with only these cells"
       },
       {
         "id": "n3",
-        "label": "Run differential expression with scanpy.tl.rank_genes_groups comparing Cluster 7 vs Cluster 9 using method='wilcoxon' and store results in adata.uns['rank_genes_groups']"
+        "label": "Run differential expression using rank_genes_groups on the subset AnnData with groups=['7','9'], method='wilcoxon', and store upregulated genes per cluster with adjusted p-values and log2 fold changes"
       },
       {
         "id": "n4",
-        "label": "From DE results, intersect significantly enriched genes (adjusted p < 0.05, log2FC > 0.5) with a curated list of canonical macrophage markers (e.g. CD68, MARCO, CSF1R, LILRB4) and T cell markers (e.g. CD3D, CD3E, CD4, CD8A) to retain lineage-specific candidates"
+        "label": "Load curated lists of canonical macrophage and T cell markers from an external reference (e.g. MSigDB, PanglaoDB) and intersect these with significantly upregulated genes (FDR < 0.05, log2FC > 0.5) for each cluster to obtain candidate macrophage- and T cell-specific markers"
       },
       {
         "id": "n5",
-        "label": "For each lineage, compute average expression and detection rate per cluster for candidate markers, rank by log2FC specificity and mean expression, and select four macrophage markers and four T cell markers with highest discriminatory power between Cluster 7 and Cluster 9"
+        "label": "For intersected candidates, compute effect size (log2FC), cluster specificity (percentage of expressing cells per cluster), and mean expression per cluster, then rank and select the top 2 macrophage markers and top 2 T cell markers that best separate Cluster 7 from Cluster 9"
       }
     ],
     "edges": [

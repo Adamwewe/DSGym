@@ -6,23 +6,23 @@
     "nodes": [
       {
         "id": "n1",
-        "label": "Clarify input data structures for caQTL lead SNPs and ATAC peak coordinates, ensuring both are on the same genome build and in comparable formats"
+        "label": "Define the set of significant caQTL lead SNP–peak pairs from the RASQUAL results"
       },
       {
         "id": "n2",
-        "label": "Define the distance metric as the absolute genomic distance between each lead SNP position and the center of its associated consensus ATAC peak"
+        "label": "Link each lead SNP to its corresponding consensus ATAC peak and compute genomic distance to the peak center"
       },
       {
         "id": "n3",
-        "label": "Compute the absolute distance from each significant caQTL lead SNP to its peak center and obtain the empirical distribution of these distances"
+        "label": "Summarise the distribution of SNP-to-peak-center distances to understand typical caQTL geometry"
       },
       {
         "id": "n4",
-        "label": "Calculate the proportion of lead SNPs with distance ≤ 1,000 bp from their peak center across all significant caQTLs"
+        "label": "Calculate the proportion of lead SNPs with distance ≤ 1,000 bp"
       },
       {
         "id": "n5",
-        "label": "Compare the estimated proportion to the candidate values (20%, 50%, 75%, 100%) and choose the closest biologically plausible option given typical caQTL geometry"
+        "label": "Compare the computed proportion to the candidate values (20%, 50%, 75%, 100%) and select the closest approximation"
       }
     ],
     "edges": [
@@ -49,23 +49,23 @@
     "nodes": [
       {
         "id": "n1",
-        "label": "Load significant caQTL lead SNP table and consensus ATAC peak BED file, confirming shared genome build, chromosome naming, and coordinate system"
+        "label": "Load RASQUAL caQTL results and filter to significant lead SNP–peak pairs"
       },
       {
         "id": "n2",
-        "label": "For each consensus ATAC peak, compute the peak center as center = floor((start + end) / 2) and define the SNP–peak distance as abs(snp_pos - center)"
+        "label": "Join lead SNPs to consensus ATAC peaks and compute genomic distance to each peak center"
       },
       {
         "id": "n3",
-        "label": "Join each significant caQTL lead SNP to its associated consensus ATAC peak, compute abs(snp_pos - peak_center) for all pairs, and save the resulting distance vector"
+        "label": "Summarise SNP-to-peak-center distance distribution with descriptive statistics and visualisation"
       },
       {
         "id": "n4",
-        "label": "Compute the proportion of significant caQTL lead SNPs whose distance to their peak center is less than or equal to 1000 bp by calculating mean(distance <= 1000)"
+        "label": "Compute the proportion of lead SNPs with distance to peak center ≤ 1,000 bp"
       },
       {
         "id": "n5",
-        "label": "Compare the computed proportion to 0.20, 0.50, 0.75, and 1.00, choose the closest value, and verify that it is consistent with known caQTL distance enrichments near peak centers"
+        "label": "Map the computed proportion to the closest of 20%, 50%, 75%, or 100% and output the selected approximation"
       }
     ],
     "edges": [

@@ -38,16 +38,22 @@ def add_eval_parser(subparsers):
     
     # Dataset configuration
     parser.add_argument("--dataset", type=str, required=True,
-                       choices=["daeval", "discoverybench", "qrdata", "dabstep", "dspredict-easy", "dspredict-hard","dsbio"],
-                       help="Dataset to evaluate on")
+                       choices=["daeval", "discoverybench", "qrdata", "dabstep", "dspredict-easy", "dspredict-hard", "dsbio", "dsbio-sampled"],
+                       help="Dataset to evaluate on. Use 'dsbio-sampled' to evaluate on a previously created sample.")
     parser.add_argument("--limit", type=int, default=None,
                        help="Number of samples to evaluate")
     parser.add_argument("--dags", type=lambda x: x.lower() not in ("false", "0", "no"),
                        default=False, metavar="BOOL",
-                       help="Generate reasoning + implementation DAGs per sample for DSBio "
-                            "(requires OPENAI_API_KEY). Accepts true/false (default: false)")
-    # parser.add_argument("--dag-model", type=str, default="gpt-4o",
-    #                    help="OpenAI model used for DAG generation (default: gpt-4o)")
+                       help="Enable iterative DAG-guided reasoning for DSBio. "
+                            "When true, the agent self-generates and revises its analysis plan. "
+                            "When false (default), uses the standard system prompt for baseline comparison. "
+                            "Accepts true/false.")
+    parser.add_argument("--sample-n", type=int, default=None, metavar="N",
+                       help="(DSBio only) Randomly sample N tasks from the hard split and save as "
+                            "dsbio_sampled.json before evaluating. The saved file can be reused "
+                            "across runs via --dataset dsbio-sampled.")
+    parser.add_argument("--sample-seed", type=int, default=42,
+                       help="Random seed for --sample-n (default: 42)")
     parser.add_argument("--synthetic-path", type=str, default=None,
                        help="Path to synthetic dataset (optional)")
     
@@ -81,22 +87,25 @@ def run_eval(args) -> int:
     print(f"Backend: {args.backend}")
     print(f"Dataset: {args.dataset}")
     print(f"Samples: {args.limit if args.limit is not None else 'all'}")
-    if args.dataset == "dsbio":
-        print(f"DAG generation: {'enabled (model: ' + args.model + ')' if args.dags else 'disabled'}")
-    
+
+    is_dsbio = args.dataset in ("dsbio", "dsbio-sampled")
+    if is_dsbio:
+        mode = "iterative DAG" if args.dags else "standard (no DAG)"
+        print(f"System prompt mode: {mode}")
+
     # Set default max_workers based on backend
     if args.max_workers is None:
         if args.backend == "litellm":
             args.max_workers = 24
         else:  # vllm or sglang
             args.max_workers = 1
-    
+
     print(f"Max workers: {args.max_workers}")
     print("-" * 50)
-    
+
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
-    
+
     # Initialize agent
     print("🤖 Initializing agent...")
     agent_config = {
@@ -105,10 +114,10 @@ def run_eval(args) -> int:
         "temperature": args.temperature,
         "output_dir": args.output_dir,
     }
-    
+
     if args.backend == "litellm" and args.api_key:
         agent_config["api_key"] = args.api_key
-    
+
     try:
         if "dspredict" in args.dataset:
             agent = DSPredictReActAgent(
@@ -119,54 +128,70 @@ def run_eval(args) -> int:
             )
         else:
             agent = ReActDSAgent(
-            backend=args.backend,
-            model=args.model,
-            **agent_config
-        )
+                backend=args.backend,
+                model=args.model,
+                **agent_config
+            )
         print("✅ Agent initialized successfully")
     except Exception as e:
         print(f"❌ Failed to initialize agent: {e}")
         return 1
-    
+
     # Load dataset
     print(f"📊 Loading {args.dataset} dataset...")
     try:
         dataset_config = {}
         if args.synthetic_path:
             dataset_config["synthetic_path"] = args.synthetic_path
-            
-        load_config = {
-            "limit": args.limit
-        }
+
+        load_config = {"limit": args.limit}
         dataset_name = args.dataset
+
         if "dspredict" in dataset_name:
             dataset_config["split"] = dataset_name.split("-")[-1]
             dataset_name = dataset_name.split("-")[0]
             dataset_config["virtual_data_root"] = "/data"
             load_config["split"] = dataset_config["split"]
-        elif dataset_name == "dsbio":
+            dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+
+        elif dataset_name in ("dsbio", "dsbio-sampled"):
             dataset_config["virtual_data_root"] = "/data"
+            dataset_name = "dsbio"
+
+            # --sample-n: create dsbio_sampled.json from the hard split, then evaluate on it
+            if args.sample_n is not None:
+                _dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+                _dataset.create_sample(n=args.sample_n, seed=args.sample_seed)
+                dataset = _dataset
+                load_config["split"] = "sampled"
+            else:
+                dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+                if args.dataset == "dsbio-sampled":
+                    load_config["split"] = "sampled"
+
             load_config["generate_dags"] = args.dags
-            load_config["model"] = args.model #args.dag_model
-        dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+
+        else:
+            dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+
         samples = dataset.load(**load_config)
         print(f"✅ Loaded {len(samples)} samples from {args.dataset}")
-        
+
     except Exception as e:
         print(f"❌ Failed to load dataset: {e}")
         return 1
-    
+
     # Create evaluator with dataset-specific metrics
     print("⚖️ Setting up evaluator...")
     evaluator = Evaluator(
         protocol="multi_turn",
-        dataset=dataset,  # This will automatically use dataset metrics and configs
+        dataset=dataset,
         parallel_workers=args.max_workers
     )
-    
+
     # Create evaluation config
     run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
-    if args.dataset == "dsbio" and not args.run_name:
+    if is_dsbio and not args.run_name:
         run_name += "_dags" if args.dags else "_nodags"
     config = EvaluationConfig(
         model_name=args.model,

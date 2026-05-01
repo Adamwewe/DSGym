@@ -2,27 +2,27 @@
   "sample_index": 3,
   "question": "Which cell type contributes most strongly to the spatial transcriptome variance across arterial segments after integration with scRNA-seq data? If cell type annotations are needed, refer to 'author_cell_type'.",
   "reasoning_dag": {
-    "graph_id": "arterial_spatial_variance_celltype_contrib",
+    "graph_id": "arterial_spatial_variance_by_celltype",
     "nodes": [
       {
         "id": "n1",
-        "label": "Confirm integrated scRNA-seq and Slide-seqV2 object with author_cell_type annotations and aligned feature space"
+        "label": "Confirm integrated representation linking Slide-seqV2 spots to scRNA-seq-derived author_cell_type annotations"
       },
       {
         "id": "n2",
-        "label": "Quantify cell type composition and dominant cell-type signature per spatial spot across arterial segments"
+        "label": "Compute cell-type composition or dominant cell-type assignment per spatial spot from integrated data"
       },
       {
         "id": "n3",
-        "label": "Compute transcriptomic variance across arterial segments at the spot level and identify major variance components"
+        "label": "Quantify spatial transcriptomic variance across arterial segments at the spot level"
       },
       {
         "id": "n4",
-        "label": "Model association between spot-level variance components and cell-type composition/signatures to estimate each cell type’s contribution"
+        "label": "Model contribution of each cell type to spot-level transcriptomic variance across arterial segments"
       },
       {
         "id": "n5",
-        "label": "Aggregate and compare effect sizes to determine which cell type most strongly explains spatial transcriptome variance across segments"
+        "label": "Identify the cell type with the largest explained variance and interpret its spatial pattern along arterial segments"
       }
     ],
     "edges": [
@@ -33,6 +33,10 @@
       {
         "source": "n2",
         "target": "n3"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
       },
       {
         "source": "n3",
@@ -45,27 +49,27 @@
     ]
   },
   "implementation_dag": {
-    "graph_id": "arterial_spatial_variance_celltype_contrib",
+    "graph_id": "arterial_spatial_variance_by_celltype",
     "nodes": [
       {
         "id": "n1",
-        "label": "Load integrated AnnData object (scRNA-seq + Slide-seqV2) and verify presence of 'author_cell_type' in scRNA-seq obs and shared gene space"
+        "label": "Load integrated scRNA-seq–Slide-seqV2 AnnData object and verify that each Slide-seqV2 spot has mapped nearest-neighbor scRNA-seq cells with author_cell_type annotations"
       },
       {
         "id": "n2",
-        "label": "Estimate cell type composition per spatial spot using scRNA-derived author_cell_type signatures and store dominant cell type per spot across arterial segments"
+        "label": "For each Slide-seqV2 spot, compute cell-type composition by aggregating author_cell_type of its mapped scRNA-seq neighbors and assign the dominant author_cell_type per spot"
       },
       {
         "id": "n3",
-        "label": "Perform spot-level PCA across arterial segments on highly variable genes and extract major variance components"
+        "label": "Quantify spot-level transcriptomic variance across arterial segments by computing per-gene variance of normalized expression within each segment and summarizing to a segment-wise variance score per spot"
       },
       {
         "id": "n4",
-        "label": "Fit linear models of PCA components as response variables with cell-type composition scores as predictors to estimate each cell type's contribution per component"
+        "label": "Fit a linear mixed-effects or variance-partitioning model with spot-level expression (or leading PCs) as response and spot-wise cell-type composition/dominant author_cell_type plus arterial segment identity as predictors to estimate variance explained by each cell type across segments"
       },
       {
         "id": "n5",
-        "label": "Aggregate absolute regression coefficients across leading PCs per cell type and identify the cell type with the highest cumulative contribution to spatial transcriptome variance"
+        "label": "Extract the cell type with the highest proportion of explained variance from the model, generate its spatial abundance/dominance map across Slide-seqV2 spots, and summarize its spatial trend along arterial segments"
       }
     ],
     "edges": [
@@ -76,6 +80,10 @@
       {
         "source": "n2",
         "target": "n3"
+      },
+      {
+        "source": "n2",
+        "target": "n4"
       },
       {
         "source": "n3",

@@ -410,7 +410,71 @@ python generate_compose.py \
 # Custom containers can use your own Dockerfile
 ```
 
-### GPU Support
+### Apple Silicon Support
+
+On Apple Silicon (M-series) Macs, use the `--apple-silicon` flag with `generate_compose.py` and the `executor-kaggle-apple` image:
+
+```bash
+# Generate Apple Silicon compose file
+python generate_compose.py \
+  --num-containers 8 \
+  --types executor-kaggle-apple:8 \
+  --apple-silicon \
+  --output docker-dspredict-apple.yml
+
+# Start the system
+docker compose -f docker-dspredict-apple.yml up -d
+```
+
+This sets `platform: linux/arm64` on every executor service and omits nvidia GPU config.  
+After rebuilding the manager image, force-recreate the manager container so it picks up the new image:
+
+```bash
+docker build -t manager-prebuilt ./manager/
+docker compose -f docker-dspredict-apple.yml up -d --no-deps --force-recreate manager
+```
+
+> **Note:** `docker compose restart` keeps the old image. Always use `--force-recreate` after rebuilding.
+
+### `AllocatedCodeEnv` — Client-Side Allocation Behaviour
+
+When using `AllocatedCodeEnv` (the Python client environment), two kwargs control how container allocation is handled:
+
+| kwarg | Default | Description |
+|---|---|---|
+| `container_type` | `"auto"` | Container type requested from the manager. `"auto"` detects the platform and requests `executor-kaggle-apple` on Apple Silicon, or leaves the type unspecified elsewhere. Pass an explicit string to override. |
+| `allocation_timeout` | `None` | Timeout in seconds for the `/allocate` HTTP request. `None` blocks indefinitely until a container is free. |
+
+**When to use `allocation_timeout=None` (default):**  
+Use when the container pool is heavily contended — e.g. running 35 dspredict tasks against 8 containers. Tasks queue up at the manager and are served as containers free up, rather than failing immediately.
+
+**When to use an explicit `allocation_timeout`:**  
+Use for lightly loaded environments (e.g. dsbio) where containers are almost always available and a fast failure is preferable over an indefinite wait.
+
+```python
+# dspredict — block until a container is free (default)
+env = AllocatedCodeEnv(manager_url="http://localhost:5000")
+
+# dsbio — fail after 30 s if no container is available
+env = AllocatedCodeEnv(manager_url="http://localhost:5000", allocation_timeout=30)
+
+# explicit container type override
+env = AllocatedCodeEnv(manager_url="http://localhost:5000",
+                       container_type="executor-kaggle-apple")
+```
+
+### Manager — Allocation Timeout Configuration
+
+The manager's server-side queue wait is controlled by the `ALLOCATION_TIMEOUT` environment variable (default: **3600 seconds**). Tasks that cannot get a container immediately are held in a queue for up to this duration before receiving a `503`.
+
+```yaml
+# docker-compose.yml — manager service
+manager:
+  environment:
+    - ALLOCATION_TIMEOUT=3600  # seconds; increase for very long-running tasks
+```
+
+
 
 Enable GPU access for containers with dedicated GPU assignment:
 
@@ -695,6 +759,7 @@ docker compose -f debug-deployment.yml logs -f
 
 **Default Configuration:**
 - Max 1000 concurrent HTTP connections per manager
+- 3600-second queue wait for container allocation (configurable via `ALLOCATION_TIMEOUT` env var)
 - 30-second timeout for code execution
 - 15-second timeout for health checks  
 - 256MB RAM per container

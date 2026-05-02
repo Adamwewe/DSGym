@@ -257,7 +257,7 @@ def save_dag_traces(
     output_dir: Union[str, Path],
 ) -> List[str]:
     """
-    Parse DAG traces from dsbio agent responses and save one JSON file per sample.
+    Parse DAG traces from dsbio/dspredict agent responses and save one JSON file per sample.
 
     Files are written to ``{output_dir}/dags/`` and named
     ``{model_slug}_{question_id}_dags.json``, mirroring the evaluation-results
@@ -271,7 +271,7 @@ def save_dag_traces(
     - ``dags``: list of all extracted DAG objects in appearance order
 
     Args:
-        results: Evaluation results (only dsbio results are processed).
+        results: Evaluation results (only dsbio and dspredict results are processed).
         model_name: LiteLLM model name used for the run.
         output_dir: Root output directory (a ``dags/`` subfolder is created inside).
 
@@ -285,7 +285,7 @@ def save_dag_traces(
     written: List[str] = []
 
     for result in results:
-        if result.dataset_name != "dsbio":
+        if result.dataset_name not in ("dsbio", "dspredict"):
             continue
         if not result.raw_response:
             continue
@@ -501,7 +501,12 @@ def save_evaluation_results(
     aggregated_metrics = compute_aggregated_metrics(results)
     if additional_metrics:
         aggregated_metrics.update(additional_metrics)
-    
+
+    # Always include run identity fields for easy cross-run comparison
+    if config is not None:
+        aggregated_metrics["model_name"] = config.model_name
+        aggregated_metrics["use_dags"] = config.extra_config.get("generate_dags", False)
+
     metrics_file = output_dir / f"{run_name}_metrics.json"
     with open(metrics_file, 'w', encoding='utf-8') as f:
         json.dump(aggregated_metrics, f, indent=2, ensure_ascii=False)
@@ -510,8 +515,12 @@ def save_evaluation_results(
     # Save summary CSV for easy analysis
     import pandas as pd
     summary_data = []
+    model_name_val = config.model_name if config is not None else ""
+    use_dags_val = config.extra_config.get("generate_dags", False) if config is not None else False
     for result in results:
         summary_row = {
+            "model_name": model_name_val,
+            "use_dags": use_dags_val,
             "sample_id": result.sample_id,
             "dataset_name": result.dataset_name,
             "query": result.query[:100] + "..." if len(result.query) > 100 else result.query,
@@ -536,9 +545,9 @@ def save_evaluation_results(
     pd.DataFrame(summary_data).to_csv(summary_file, index=False)
     file_paths["summary"] = str(summary_file)
 
-    # Extract and save DAG traces for dsbio runs
-    dsbio_results = [r for r in results if r.dataset_name == "dsbio"]
-    if dsbio_results and config is not None:
+    # Extract and save DAG traces for dsbio and dspredict runs
+    dag_eligible_results = [r for r in results if r.dataset_name in ("dsbio", "dspredict")]
+    if dag_eligible_results and config is not None:
         dag_files = save_dag_traces(results, config.model_name, output_dir)
         if dag_files:
             file_paths["dag_traces"] = str(output_dir / "dags")

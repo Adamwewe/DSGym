@@ -1,0 +1,45 @@
+# Apple Silicon (arm64 / M-series) variant of the executor-kaggle image.
+#
+# Differences from the standard Dockerfile:
+#   - Base image: python:3.12-slim  (multi-arch: amd64 + arm64)
+#     instead of pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime (amd64 only).
+#   - No CUDA / cuDNN. PyTorch can be installed by the agent at runtime via
+#     `pip install torch` — on arm64 pip delivers a CPU/MPS-enabled wheel.
+#
+# Build:
+#   sudo docker build -t executor-kaggle-apple -f Dockerfile.apple .
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user with matching UID/GID to host user
+RUN groupadd -g 243000848 appuser && \
+    useradd -r -u 243000848 -g appuser appuser
+
+# Copy the executor application code
+COPY main.py kernel_executor.py instruction.txt output_cleaning.py /app/
+WORKDIR /app
+
+# Set up environment variables
+ENV PORT=8432
+ENV CODE_FOLDER="/data"
+ENV PYTHONWARNINGS="ignore::FutureWarning"
+
+# Expose the port
+EXPOSE 8432
+
+# Install dependencies (same as the GPU image, minus CUDA-specific packages)
+COPY requirements.kaggle.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Create submission directory and set ownership
+RUN mkdir -p /submission && chown -R appuser:appuser /submission /app
+RUN chmod -R 777 /submission /app
+
+# Switch to non-root user
+USER appuser
+
+# Run the application
+CMD ["python", "main.py"]

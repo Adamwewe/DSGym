@@ -83,6 +83,17 @@ sudo docker build -t manager-prebuilt ./manager
 sudo docker compose -f docker-dspredict-hard.yml up -d --build
 
 sudo docker compose -f docker-dspredict-hard.yml down
+
+# DSPredict on Apple Silicon (M-series, no GPU)
+sudo docker build -t executor-kaggle-apple -f ./container_images/kaggle_image/Dockerfile.apple ./container_images/kaggle_image
+sudo docker build -t manager-prebuilt ./manager
+
+python generate_compose.py -n 8 --types "executor-kaggle-apple:8" -m ../data/data --output docker-dspredict-apple.yml \
+  -c container_config_dspredict_hard.json -s ../submissions \
+  -e "EXECUTION_TIMEOUT=3600,MEM_LIMIT=24G,CPUS=8" --apple-silicon
+
+sudo docker compose -f docker-dspredict-apple.yml up -d
+sudo docker compose -f docker-dspredict-apple.yml down
 ```
 
 ### 3. Run Evaluations
@@ -483,6 +494,116 @@ dsgym eval --dataset dsbio-sampled --dags true --model gpt-4o
 
 # 4. Recreate sample with a different seed
 dsgym eval --dataset dsbio --sample-n 20 --sample-seed 7 --dags true --model claude-sonnet-4-6
+```
+
+## DAG Generation for DSPredict
+
+DSPredict tasks support the same iterative DAG-guided reasoning as DSBio. Before
+writing any code the agent emits two self-contained DAGs — a high-level
+**ReasoningDAG** (competition analysis decisions) and a concrete **ImplementationDAG**
+(step-by-step ML pipeline) — and follows them, revising inline on failures.
+
+### CLI flags (DSPredict)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dags true\|false` | `false` | Enable DAG-guided prompts for DSPredict |
+| `--dag-model MODEL` | `gpt-4o` | Model used for post-hoc DAG generation (Python API only) |
+
+```bash
+# Baseline (no DAGs)
+dsgym eval --dataset dspredict-hard --dags false --model gpt-4o
+
+# DAG-guided run
+dsgym eval --dataset dspredict-hard --dags true --model gpt-4o
+
+# DAG-guided run on a subsample (see below)
+dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+```
+
+### Python API
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dspredict")
+
+# DAG system prompt injected automatically — no upfront API calls
+samples = dataset.load(split="hard", limit=10, generate_dags=True)
+
+# Post-hoc DAG generation for a loaded sample
+reasoning = dataset.generate_dag(samples[0], dag_type="reasoning", model="gpt-4o")
+impl = dataset.generate_dag(
+    samples[0], dag_type="implementation", reasoning_dag=reasoning, model="gpt-4o"
+)
+
+# Or both in one call
+dags = dataset.generate_dags(samples[0], model="gpt-4o")
+print(dags["reasoning"].model_dump_json(indent=2))
+print(dags["implementation"].model_dump_json(indent=2))
+```
+
+## Subsampling DSPredict
+
+DSPredict has three splits (`easy`, `hard`, `lite`). The same subsampling helpers
+available for DSBio are also available here.
+
+### Creating a subsample
+
+**CLI** (`--sample-n` / `--sample-seed`):
+
+```bash
+# Sample 5 tasks from the hard split, save as dspredict_sampled.json, evaluate with DAGs
+dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+
+# Reproducible with a different seed
+dsgym eval --dataset dspredict-hard --sample-n 5 --sample-seed 7 --dags true --model gpt-4o
+```
+
+**Python API:**
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dspredict")
+
+# Creates data/task/dspredict/dspredict_sampled.json
+dataset.create_sample(n=5, split="hard", seed=42)
+
+# Or sample from the easy split
+dataset.create_sample(n=10, split="easy", seed=42)
+```
+
+### Evaluating on an existing subsample
+
+```bash
+# Baseline (no DAGs) — same 5 tasks, no resampling
+dsgym eval --dataset dspredict-sampled --dags false --model gpt-4o
+
+# DAG-guided run with a different model on the same sample
+dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
+```
+
+**Python API:**
+
+```python
+samples = DatasetRegistry.load("dspredict").load(split="sampled")
+```
+
+### Typical workflows
+
+```bash
+# 1. Create sample + DAG run (first time)
+dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+
+# 2. Baseline comparison on the same tasks
+dsgym eval --dataset dspredict-sampled --dags false --model gpt-4o
+
+# 3. DAG run with a different model on the same sample
+dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
+
+# 4. Recreate sample with a different seed
+dsgym eval --dataset dspredict-hard --sample-n 5 --sample-seed 7 --dags true --model gpt-4o
 ```
 
 ## Key Innovations

@@ -16,7 +16,8 @@ def generate_container_config(container_id: int,
                               mountable_volume_saveto: Optional[str] = None,
                               extra_env: Optional[dict] = None, 
                               manager_url: Optional[str] = None,
-                              gpu_id: Optional[int] = None) -> dict:
+                              gpu_id: Optional[int] = None,
+                              apple_silicon: bool = False) -> dict:
 
     # default values. these can be set with the env vars passed in
     execution_timeout = extra_env['EXECUTION_TIMEOUT'] if extra_env and 'EXECUTION_TIMEOUT' in extra_env else '360'
@@ -54,9 +55,14 @@ def generate_container_config(container_id: int,
         'mem_reservation': mem_reservation,
         'extra_hosts': ['host.docker.internal:host-gateway']
     }
+
+    # Pin platform explicitly on Apple Silicon to suppress the mismatch warning
+    # and ensure the arm64 image is used.
+    if apple_silicon:
+        config['platform'] = 'linux/arm64'
     
-    # Add GPU configuration if specified
-    if gpu_id is not None:
+    # Add GPU configuration if specified (not compatible with Apple Silicon)
+    if gpu_id is not None and not apple_silicon:
         config.pop('mem_reservation', None)
         config['deploy'] = {
             'resources': {
@@ -132,7 +138,8 @@ def generate_compose_file(
     mountable_volume_saveto: Optional[str] = None,
     extra_env: Optional[dict] = None,
     gpu_ids: Optional[list[int]] = None,
-    config_file: str = 'container_config.json'
+    config_file: str = 'container_config.json',
+    apple_silicon: bool = False
 ) -> None:
     """Generate a complete Docker Compose file"""
     
@@ -163,6 +170,9 @@ def generate_compose_file(
     if gpu_ids:
         print(f"   GPU support: ENABLED (GPUs {gpu_ids} mapped to containers 0-{num_containers-1})")
     
+    if apple_silicon:
+        print(f"   Platform: linux/arm64 (Apple Silicon mode — GPU config disabled)")
+    
     print(f"   Output: {output_file}")
     
     for i in range(num_containers):
@@ -174,7 +184,7 @@ def generate_compose_file(
         # Assign GPU ID if provided
         gpu_id = gpu_ids[i] if gpu_ids else None
         
-        services[service_name] = generate_container_config(container_id, host_port, container_type, mountable_volumes, mountable_volume_saveto, extra_env, manager_url=None, gpu_id=gpu_id)
+        services[service_name] = generate_container_config(container_id, host_port, container_type, mountable_volumes, mountable_volume_saveto, extra_env, manager_url=None, gpu_id=gpu_id, apple_silicon=apple_silicon)
     
     # Add manager service
     services['manager'] = {
@@ -286,6 +296,9 @@ def main():
     parser.add_argument('--types', '-t', help='Container types in format python:10,nodejs:5 (exact counts)')
     parser.add_argument('--gpu-ids', '-g', help='GPU IDs to assign to containers, comma-separated (e.g., 0,1,2,3,4,5,6,7)')
     parser.add_argument('--config-file', '-c', default='container_config.json', help='Container config file name (default: container_config.json)')
+    parser.add_argument('--apple-silicon', action='store_true',
+                        help='Target Apple Silicon (arm64). Adds platform: linux/arm64 to each service '
+                             'and disables nvidia GPU config. Use with executor-kaggle-apple image.')
     
     args = parser.parse_args()
     
@@ -313,7 +326,8 @@ def main():
         mountable_volume_saveto=args.mountable_volume_saveto,
         extra_env=extra_env,
         gpu_ids=gpu_ids,
-        config_file=args.config_file
+        config_file=args.config_file,
+        apple_silicon=args.apple_silicon
     )
     
     generate_container_config_json(

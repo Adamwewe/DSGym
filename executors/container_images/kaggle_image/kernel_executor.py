@@ -62,12 +62,44 @@ class KernelExecutor:
         
         print(f"Code folder setup completed. Loaded files: {loaded_files}")
     
+    def _shutdown_kernel_with_timeout(self, km, timeout: float = 15.0):
+        """Shut down km gracefully; force-kill with SIGKILL if it doesn't exit in time."""
+        done = threading.Event()
+
+        def _try_shutdown():
+            try:
+                km.shutdown_kernel(now=False)
+            except Exception:
+                pass
+            finally:
+                done.set()
+
+        t = threading.Thread(target=_try_shutdown, daemon=True)
+        t.start()
+        if not done.wait(timeout=timeout):
+            print(f"DEBUG: shutdown_kernel timed out after {timeout}s, force-killing kernel")
+            try:
+                km.kill_kernel()
+            except Exception as e:
+                print(f"DEBUG: kill_kernel failed: {e}")
+
     def stop(self):
+        # Clear refs under the lock so no new execute() can start, then shut
+        # down the kernel *outside* the lock so the lock is never held during
+        # a potentially blocking shutdown_kernel() call.
         with self._lock:
-            if self.kc:
-                self.kc.stop_channels()
-            if self.km:
-                self.km.shutdown_kernel()
+            kc, km = self.kc, self.km
+            self.kc = None
+            self.km = None
+
+        if kc:
+            try:
+                kc.stop_channels()
+            except Exception:
+                pass
+
+        if km:
+            self._shutdown_kernel_with_timeout(km)
     
     def restart(self):
         """Non-blocking restart of the kernel"""
@@ -114,9 +146,17 @@ class KernelExecutor:
         if verbose:
             print(f"DEBUG: Executing code with timeout={self.timeout}s: {code[:50]}...")
         
+        # Wait for any in-progress restart to finish.  Cap the wait so that a
+        # stuck _restart_worker (e.g. force-killing a zombie kernel) never
+        # blocks this call indefinitely.
+        restart_deadline = time.time() + self.timeout + 30
         while self.is_restarting:
+            if time.time() > restart_deadline:
+                return [{"type": "error", "name": "KernelError",
+                         "value": "Kernel restart timed out; container may be unresponsive",
+                         "traceback": []}]
             time.sleep(0.1)
-        
+
         # Check if kernel is available
         if not self.kc:
             return [{"type": "error", "name": "KernelError", "value": "Kernel not available", "traceback": []}]

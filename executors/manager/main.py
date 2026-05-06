@@ -94,19 +94,47 @@ async def _wait_for_container(request: Request, queue: asyncio.Queue, allocation
     Wait for a container from *queue*, but abort immediately if the HTTP client
     disconnects.  Returns the container_id, or None if the client disconnected.
     Raises asyncio.TimeoutError if allocation_timeout is exceeded.
+
+    Uses a single persistent get_task so that no orphaned queue.get() futures
+    are created across poll iterations.  The old asyncio.shield(queue.get())
+    pattern recreated a new coroutine every second, causing containers
+    dequeued by stale futures to disappear from both available and allocated
+    sets (available=0, allocated=0 with containers unaccounted for).
     """
     start = asyncio.get_event_loop().time()
-    while True:
-        if await request.is_disconnected():
-            return None
-        elapsed = asyncio.get_event_loop().time() - start
-        if elapsed >= allocation_timeout:
-            raise asyncio.TimeoutError()
-        try:
-            container_id = await asyncio.wait_for(asyncio.shield(queue.get()), timeout=1.0)
-            return container_id
-        except asyncio.TimeoutError:
-            continue  # re-check disconnect + total timeout
+    # One persistent get task — reused across all poll iterations.
+    get_task = asyncio.ensure_future(queue.get())
+    container_id = None
+    try:
+        while True:
+            if await request.is_disconnected():
+                return None
+            elapsed = asyncio.get_event_loop().time() - start
+            if elapsed >= allocation_timeout:
+                raise asyncio.TimeoutError()
+            # Wait up to 1 s for the get to complete, then re-check disconnect/timeout.
+            # asyncio.wait does NOT cancel get_task on timeout — it stays alive for
+            # the next iteration, unlike wait_for which would cancel it.
+            done, _ = await asyncio.wait([get_task], timeout=1.0)
+            if get_task in done:
+                container_id = get_task.result()
+                return container_id
+            # else: poll timed out, loop to re-check disconnect + allocation_timeout
+    finally:
+        if not get_task.done():
+            get_task.cancel()
+            try:
+                await get_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        elif container_id is None and not get_task.cancelled():
+            # Task finished with a result but we're exiting via an exception path
+            # before returning it — put the container back to avoid leaking it.
+            try:
+                leaked_id = get_task.result()
+                queue.put_nowait(leaked_id)
+            except Exception:
+                pass
 
 @app.get("/health")
 async def health():

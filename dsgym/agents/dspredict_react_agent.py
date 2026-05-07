@@ -61,6 +61,7 @@ class DSPredictReActAgent(ReActDSAgent):
                 max_turns=self.max_turns,
                 output_dir=self.output_dir,
                 time_out=self.time_out,
+                container_type=self.container_type,
             )
 
             # Initialize environment
@@ -74,8 +75,9 @@ class DSPredictReActAgent(ReActDSAgent):
 
             for turn in range(self.max_turns):
                 try:
-                    # Generate response
-                    response = self.backend_instance.generate(conversation)
+                    # Generate response (prune history first to stay within context)
+                    pruned = self._prune_conversation(conversation)
+                    response = self.backend_instance.generate(pruned)
 
                     # Step environment
                     step_start = time.time()
@@ -198,3 +200,30 @@ class DSPredictReActAgent(ReActDSAgent):
             "step_time": step_time,
         })
         return trajectory
+
+    def _prune_conversation(self, conversation: List[Dict[str, Any]], keep_recent: int = 20) -> List[Dict[str, Any]]:
+        """
+        Trim the conversation to avoid context-window overflow.
+
+        Always keeps:
+          - messages[0]: system prompt
+          - messages[1]: initial user task description
+          - The most recent ``keep_recent`` messages
+
+        Middle turns (verbose code outputs from early steps) are dropped with a
+        placeholder so the model knows history was truncated.
+        """
+        if len(conversation) <= keep_recent + 2:
+            return conversation
+
+        head = conversation[:2]
+        tail = conversation[-keep_recent:]
+        dropped = len(conversation) - 2 - keep_recent
+        placeholder = {
+            "role": "user",
+            "content": (
+                f"[{dropped} earlier turn(s) omitted to stay within the context window. "
+                "Variables and files produced in those turns are still available in the execution environment.]"
+            ),
+        }
+        return head + [placeholder] + tail

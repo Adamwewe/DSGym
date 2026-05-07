@@ -38,6 +38,7 @@ class ReActDSAgent(BaseAgent):
         self.manager_url = kwargs.get('manager_url', 'http://localhost:5000')
         self.max_turns = kwargs.get('max_turns', 15)
         self.output_dir = kwargs.get('output_dir', './outputs')
+        self.container_type = kwargs.get('container_type', 'auto')
     
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -69,7 +70,8 @@ class ReActDSAgent(BaseAgent):
             env = AllocatedCodeEnv(
                 manager_url=self.manager_url,
                 max_turns=self.max_turns,
-                output_dir=self.output_dir
+                output_dir=self.output_dir,
+                container_type=self.container_type,
             )
             
             # Initialize environment

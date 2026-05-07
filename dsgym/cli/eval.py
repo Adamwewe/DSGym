@@ -116,6 +116,11 @@ def run_eval(args) -> int:
         "output_dir": args.output_dir,
     }
 
+    # DSBio requires no GPU workloads, so skip Apple Silicon / Darwin platform
+    # detection and let the manager allocate any available container.
+    if is_dsbio:
+        agent_config["container_type"] = None
+
     if args.backend == "litellm" and args.api_key:
         agent_config["api_key"] = args.api_key
 

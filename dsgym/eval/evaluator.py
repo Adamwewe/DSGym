@@ -2,6 +2,9 @@
 Main evaluator orchestrator for DSGym evaluation framework.
 """
 
+import json
+import os
+import re
 import time
 import concurrent.futures
 from typing import List, Dict, Any, Optional
@@ -119,11 +122,11 @@ class Evaluator:
         # Use parallel evaluation if specified
         if self.parallel_workers and self.parallel_workers > 1:
             evaluation_results = self._evaluate_parallel(
-                agent, tasks, show_progress
+                agent, tasks, show_progress, config=config
             )
         else:
             evaluation_results = self._evaluate_sequential(
-                agent, tasks, show_progress
+                agent, tasks, show_progress, config=config
             )
         
         # Metrics are already computed per sample, no need for batch computation
@@ -155,11 +158,55 @@ class Evaluator:
         
         return result_data
     
+    def _save_intermediate_result(self, result: EvaluationResult, config: EvaluationConfig) -> None:
+        """
+        Save a single completed task result as a per-task checkpoint file.
+
+        Filename format: ``{challenge_or_id}_{index}_{model_slug}_{dags|nodags}.json``
+        e.g. ``mens-machine-learning-competition-2018_31_claude_sonnet_4_5_dags.json``
+
+        The file contains the full ``EvaluationResult.to_dict()`` payload so that
+        ``load_dspredict_from_intermediate`` in analysis.ipynb can recover all scores
+        without requiring the complete run to finish.
+        """
+        output_dir = config.output_dir
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Challenge name: use challenge_name field, fall back to metadata_id (same for dspredict)
+            challenge_name = (
+                result.extra_info.get("challenge_name")
+                or result.extra_info.get("metadata_id")
+                or result.sample_id
+            )
+            index = result.extra_info.get("index", "")
+
+            # Model slug: sanitise model name (take last path component, replace non-alphanum)
+            model_slug = re.sub(r"[^a-zA-Z0-9]", "_", config.model_name.split("/")[-1])
+
+            # DAG suffix
+            dags = config.extra_config.get("generate_dags", False)
+            dag_suffix = "dags" if dags else "nodags"
+
+            # Build filename
+            parts = [str(challenge_name)]
+            if index != "":
+                parts.append(str(index))
+            parts.extend([model_slug, dag_suffix])
+            filename = "_".join(parts) + ".json"
+            filepath = os.path.join(output_dir, filename)
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(result.to_dict(), f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to save intermediate checkpoint: {e}")
+
     def _evaluate_sequential(
-        self, 
-        agent, 
-        tasks: List[Dict[str, Any]], 
-        show_progress: bool
+        self,
+        agent,
+        tasks: List[Dict[str, Any]],
+        show_progress: bool,
+        config: Optional[EvaluationConfig] = None,
     ) -> List[EvaluationResult]:
         """Evaluate tasks sequentially."""
         results = []
@@ -170,6 +217,8 @@ class Evaluator:
             try:
                 result = self._evaluate_single_sample(agent, task)
                 results.append(result)
+                if config:
+                    self._save_intermediate_result(result, config)
                 
             except Exception as e:
                 # Create error result
@@ -188,14 +237,17 @@ class Evaluator:
                     }
                 )
                 results.append(error_result)
+                if config:
+                    self._save_intermediate_result(error_result, config)
         
         return results
     
     def _evaluate_parallel(
-        self, 
-        agent, 
-        tasks: List[Dict[str, Any]], 
-        show_progress: bool
+        self,
+        agent,
+        tasks: List[Dict[str, Any]],
+        show_progress: bool,
+        config: Optional[EvaluationConfig] = None,
     ) -> List[EvaluationResult]:
         """Evaluate tasks in parallel."""
         results = [None] * len(tasks)
@@ -230,6 +282,8 @@ class Evaluator:
                 try:
                     index, result = evaluate_single((i, task))
                     results[index] = result
+                    if config:
+                        self._save_intermediate_result(result, config)
                 except Exception as e:
                     print(f"Failed to process task {i}: {e}")
                     task_info = extract_sample_info(task)
@@ -246,6 +300,8 @@ class Evaluator:
                         }
                     )
                     results[i] = error_result
+                    if config:
+                        self._save_intermediate_result(error_result, config)
         else:
             # Execute in parallel
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_workers) as executor:
@@ -256,17 +312,19 @@ class Evaluator:
                 
                 # Collect results with progress bar
                 if show_progress:
-                    futures = tqdm(
+                    completed = tqdm(
                         concurrent.futures.as_completed(futures), 
                         total=len(futures),
                         desc="Evaluating (parallel)"
                     )
                 else:
-                    futures = concurrent.futures.as_completed(futures)
+                    completed = concurrent.futures.as_completed(futures)
                 
-                for future in futures:
+                for future in completed:
                     index, result = future.result()
                     results[index] = result
+                    if config:
+                        self._save_intermediate_result(result, config)
         
         return results
     
@@ -363,6 +421,10 @@ class Evaluator:
                     trajectory=trajectory,
                     extra_info={
                         **sample_info,
+                        # Propagate challenge_name and index from the original sample
+                        # so _save_intermediate_result can build the checkpoint filename.
+                        "challenge_name": sample.get("extra_info", {}).get("challenge_name", ""),
+                        "index": sample.get("extra_info", {}).get("index", ""),
                         "done": done
                     }
                 )

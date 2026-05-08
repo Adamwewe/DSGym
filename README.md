@@ -218,6 +218,7 @@ DSGym provides a unified CLI interface:
 #### Available Commands
 
 - **`dsgym eval`**: Evaluate models on datasets
+- **`dsgym resubmit`**: Re-score saved DSPredict submissions against Kaggle without re-running agents
 - **`dsgym generate`**: Generate trajectories for synthetic data (coming soon)
 - **`dsgym train`**: Train models (coming soon)
 
@@ -250,10 +251,34 @@ dsgym eval \
 ├── {run_name}_summary.csv        # CSV for easy analysis
 ├── {run_name}_metrics.json       # Aggregated metrics
 ├── {run_name}_config.json        # Evaluation configuration
+├── {challenge}_{index}_{model}_{dags|nodags}.json  # Per-task checkpoint (see below)
 └── dags/                         # DAG artifacts (DSBio --dags true only)
     ├── 0_dags.json               # reasoning + implementation DAGs for sample 0
     ├── 1_dags.json               # reasoning + implementation DAGs for sample 1
     └── ...
+```
+
+#### Per-task Checkpoints (Intermediate Results)
+
+Every time a task finishes the evaluator immediately writes a per-task checkpoint
+file in addition to the aggregate results files:
+
+```
+{output_dir}/{challenge_name}_{index}_{model_slug}_{dags|nodags}.json
+# e.g. mens-machine-learning-competition-2018_31_claude_sonnet_4_5_dags.json
+```
+
+Each file contains the full `EvaluationResult` payload — prediction path,
+metrics, trajectory, execution time — so you can recover partial results even
+if the run does not complete.
+
+To load partial results in `analysis.ipynb` use the helper added to that
+notebook:
+
+```python
+dp_data[("claude-sonnet-4-6", "dags")] = load_dspredict_from_intermediate(
+    "*_claude_sonnet_4_6_dags.json"
+)
 ```
 
 ## Supported Datasets
@@ -604,6 +629,100 @@ dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
 
 # 4. Recreate sample with a different seed
 dsgym eval --dataset dspredict-hard --sample-n 5 --sample-seed 7 --dags true --model gpt-4o
+```
+
+## Re-submitting DSPredict Results (`dsgym resubmit`)
+
+If a DSPredict evaluation run times out or is interrupted, the per-task
+checkpoint files are still on disk. `dsgym resubmit` reads those files,
+re-submits each saved `submission.csv` to Kaggle, and writes the scored
+metrics back into the checkpoint files — without re-running any agents.
+
+### Basic usage
+
+```bash
+# Re-score all claude-sonnet-4-5 DAG checkpoints in the default output directory
+dsgym resubmit --pattern "*_claude_sonnet_4_5_dags.json"
+
+# Use a specific directory and a longer per-submission timeout
+dsgym resubmit \
+    --input-dir ./evaluation_results \
+    --pattern "*_dags.json" \
+    --timeout 20
+
+# Force re-score even checkpoints that already have a score
+dsgym resubmit --pattern "*_dags.json" --no-skip-scored
+
+# Dry-run: show which files would be submitted without uploading
+dsgym resubmit --pattern "*_dags.json" --dry-run
+```
+
+### All options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--input-dir` | `./evaluation_results` | Directory containing checkpoint JSON files |
+| `--pattern` | `*.json` | Glob pattern for checkpoint files (use a specific model/run pattern) |
+| `--timeout` | `10` | Minutes to wait for each Kaggle submission to be scored |
+| `--max-workers` | `1` | Parallel submissions. Default is 1 (sequential) — see note below |
+| `--skip-scored` | `True` | Skip files that already have a non-null score |
+| `--no-skip-scored` | — | Re-submit even already-scored checkpoints |
+| `--dry-run` | `False` | Print what would be submitted without uploading |
+
+### Upload speed and parallelism
+
+DSPredict submission files can be large (50–400 MB). At a typical upload speed
+of 8 Mbps (1 MB/s), a 400 MB file takes ~6–7 minutes to upload.
+
+`--max-workers` defaults to **1** (sequential). This is intentional: running
+multiple uploads in parallel splits your available upload bandwidth between them,
+making each one slower without any real throughput gain. Only increase
+`--max-workers` on fast connections (100+ Mbps).
+
+Upload progress is printed as the file transfers:
+
+```
+⬆️  Uploading ashrae-energy-prediction_submission.csv (51.0 MB) to ashrae-energy-prediction…
+  … 10.2 / 51.0 MB  (20%)
+  … 20.5 / 51.0 MB  (40%)
+  …
+✅ Upload complete: 51.0 MB in 51s (1.0 MB/s)
+```
+
+### Retry behaviour
+
+The submission pipeline automatically retries on transient failures
+(broken connections, rate limits, timeouts). Each retry creates a **fresh
+Kaggle API client** with a new connection pool, which is the root cause fix for
+`BrokenPipeError` — stale HTTP connections in `KaggleClient` were silently
+failing on subsequent API calls after the first connection dropped.
+
+| Stage | Retries | Behaviour |
+|---|---|---|
+| File upload (PUT to GCS presigned URL) | 3 | Fresh presigned URL fetched per attempt; 15s / 30s backoff |
+| Full submission flow (upload + wait) | 3 | New `KaggleClient` per attempt; 20s–30s jittered backoff |
+| Score polling (`GetSubmission`) | Continuous until timeout | Jittered 30 ± 10s interval; transient errors logged and retried |
+
+Parallel workers use a random initial delay (5–20s) before their first poll so
+they don't all hit the Kaggle API simultaneously.
+
+### Typical recovery workflow
+
+```bash
+# 1. A DSPredict run times out part-way through — checkpoints are on disk
+dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
+#    → times out after 20/35 tasks; 20 checkpoint files are saved
+
+# 2. Re-score the checkpoints that completed (skips already-scored ones)
+dsgym resubmit \
+    --input-dir ./evaluation_results \
+    --pattern "*_claude_sonnet_4_6_dags.json"
+
+# 3. Load partial results in analysis.ipynb
+#    Use load_dspredict_from_intermediate() (already in the notebook):
+#    dp_data[("claude-sonnet-4-6", "dags")] = load_dspredict_from_intermediate(
+#        "*_claude_sonnet_4_6_dags.json"
+#    )
 ```
 
 ## Key Innovations

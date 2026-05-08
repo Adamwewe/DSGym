@@ -9,6 +9,7 @@ from typing import List, Optional
 from .eval import add_eval_parser, run_eval
 from .generate import add_generate_parser, run_generate
 from .train import add_train_parser, run_train
+from .resubmit import add_resubmit_parser, run_resubmit
 
 
 def main(args: Optional[List[str]] = None) -> int:
@@ -54,6 +55,7 @@ Examples:
     add_eval_parser(subparsers)
     add_generate_parser(subparsers)
     add_train_parser(subparsers)
+    add_resubmit_parser(subparsers)
     
     if args is None:
         args = sys.argv[1:]
@@ -71,6 +73,8 @@ Examples:
         return run_generate(parsed_args)
     elif parsed_args.command == "train":
         return run_train(parsed_args)
+    elif parsed_args.command == "resubmit":
+        return run_resubmit(parsed_args)
     else:
         print(f"❌ Unknown command: {parsed_args.command}")
         parser.print_help()

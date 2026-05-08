@@ -9,13 +9,24 @@ the logic from the legacy evaluator's `evaluate_dspredict_submission_in_leaderbo
 from __future__ import annotations
 
 import os
+import random
 import shutil
 import time
 from datetime import datetime
 from typing import Optional, Dict, Any
-from tenacity import retry, stop_after_attempt, wait_random
+from tenacity import retry, stop_after_attempt, wait_random, wait_exponential_jitter, retry_if_exception
 
 from ..base import BaseMetric, MetricResult
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Return True for transient errors that should trigger a retry."""
+    msg = str(exc).lower()
+    return any(
+        kw in msg
+        for kw in ("429", "too many requests", "rate limit", "timeout", "connection aborted",
+                   "broken pipe", "reset by peer", "temporarily unavailable", "503", "502", "500")
+    )
 
 
 def _safe_float(x):
@@ -23,6 +34,30 @@ def _safe_float(x):
         return float(x)
     except Exception:
         return None
+
+
+def _progress_reader(file_path: str, file_size: int, chunk_size: int = 1024 * 1024):
+    """Generator that streams a file in chunks while printing upload progress.
+
+    Streams directly from disk so we never load the full file into RAM — important
+    for large submission files (hundreds of MB).  httpx accepts a generator as
+    ``content`` when ``Content-Length`` is also provided.
+    """
+    uploaded = 0
+    last_report = 0
+    report_every = max(file_size // 20, chunk_size)  # report ~every 5%
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            uploaded += len(chunk)
+            yield chunk
+            if uploaded - last_report >= report_every or uploaded == file_size:
+                pct = 100.0 * uploaded / file_size if file_size else 100
+                print(f"  … {uploaded / (1024*1024):.1f} / {file_size / (1024*1024):.1f} MB  ({pct:.0f}%)",
+                      flush=True)
+                last_report = uploaded
 
 
 class DSPredictSubmissionManager:
@@ -66,20 +101,53 @@ class DSPredictSubmissionManager:
             ApiCreateSubmissionRequest,
             ApiStartSubmissionUploadRequest,
         )
-        import requests
+        import httpx
 
         file_size = os.path.getsize(file_path)
         file_name = os.path.basename(file_path)
+        file_size_mb = file_size / (1024 * 1024)
 
         upload_request = ApiStartSubmissionUploadRequest()
         upload_request.competition_name = competition_name
         upload_request.content_length = file_size
         upload_request.file_name = file_name
 
-        upload_response = self.client.competitions.competition_api_client.start_submission_upload(upload_request)
+        last_exc = None
+        for attempt in range(3):
+            if attempt > 0:
+                wait_secs = 15 * attempt
+                print(f"⚠️  Upload attempt {attempt + 1} for {competition_name}, retrying in {wait_secs}s…")
+                time.sleep(wait_secs)
 
-        with open(file_path, "rb") as f:
-            requests.put(upload_response.create_url, data=f)
+            # Fetch a fresh presigned URL for every attempt – the old one may
+            # have been invalidated by a previous failed PUT.
+            upload_response = self.client.competitions.competition_api_client.start_submission_upload(upload_request)
+
+            try:
+                # Use httpx so we can set write=None (no write-side timeout).
+                # requests has no configurable write timeout; large files can
+                # stall mid-upload causing TimeoutError on the write operation.
+                timeout = httpx.Timeout(connect=30.0, read=600.0, write=None, pool=30.0)
+                print(f"⬆️  Uploading {file_name} ({file_size_mb:.1f} MB) to {competition_name}…")
+                upload_start = time.time()
+                with httpx.Client(timeout=timeout) as client:
+                    response = client.put(
+                        upload_response.create_url,
+                        content=_progress_reader(file_path, file_size),
+                        headers={"Content-Length": str(file_size)},
+                    )
+                elapsed = time.time() - upload_start
+                speed_mbps = file_size_mb / elapsed if elapsed > 0 else 0
+                print(f"✅ Upload complete: {file_size_mb:.1f} MB in {elapsed:.0f}s ({speed_mbps:.1f} MB/s)")
+                response.raise_for_status()
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                print(f"⚠️  PUT failed (attempt {attempt + 1}): {exc}")
+
+        if last_exc is not None:
+            raise last_exc
 
         submit_request = ApiCreateSubmissionRequest()
         submit_request.competition_name = competition_name
@@ -104,14 +172,24 @@ class DSPredictSubmissionManager:
     def wait_for_submission(self, submission_ref: str, timeout_minutes: int = 30) -> Dict[str, Any]:
         start = time.time()
         timeout = timeout_minutes * 60
+        # Random initial offset so parallel workers don't all poll simultaneously
+        time.sleep(random.uniform(5, 20))
         while time.time() - start < timeout:
-            info = self.get_submission_score(submission_ref)
+            try:
+                info = self.get_submission_score(submission_ref)
+            except Exception as exc:
+                if _is_retryable(exc):
+                    print(f"⚠️  Polling error (will retry): {exc}")
+                    time.sleep(30 + random.uniform(0, 20))
+                    continue
+                raise
             status = info.get("status", "")
             if "COMPLETE" in status:
                 return info
             if "ERROR" in status:
                 return info
-            time.sleep(30)
+            # Jittered poll interval: base 30s ± 10s so workers stay out of sync
+            time.sleep(30 + random.uniform(-10, 10))
         final_info = self.get_submission_score(submission_ref)
         final_info["status"] = str(final_info.get("status", "TIMEOUT"))
         return final_info
@@ -281,17 +359,38 @@ class KaggleSubmissionMetric(BaseMetric):
 
     # @retry(wait=wait_random(2, 5), stop=stop_after_attempt(5))
     def _submit_via_api(self, challenge_name, submission_path):
-        manager = DSPredictSubmissionManager()
+        """Submit file and wait for score, retrying the full flow with a fresh
+        KaggleClient on every attempt.
 
-        ref = manager.submit_file(
-            competition_name=challenge_name,
-            file_path=submission_path,
-            description=f"DSGym auto submission {challenge_name}",
-        )
-
-        score_info = manager.wait_for_submission(ref, timeout_minutes=self.timeout_minutes)
-
-        return score_info
+        Stale gRPC/HTTP connections in KaggleClient produce
+        ('Connection aborted.', BrokenPipeError) on the Kaggle API calls
+        (start_submission_upload, create_submission, get_submission).
+        Creating a new DSPredictSubmissionManager() on each retry gives a
+        completely fresh connection pool, which clears the stale-connection issue.
+        """
+        last_exc = None
+        for attempt in range(3):
+            if attempt > 0:
+                wait_secs = 20 * attempt + random.uniform(0, 10)
+                print(f"⚠️  Submission attempt {attempt + 1} for {challenge_name}, retrying in {wait_secs:.0f}s…")
+                time.sleep(wait_secs)
+            try:
+                # Fresh manager = fresh KaggleClient = fresh connection pool
+                manager = DSPredictSubmissionManager()
+                ref = manager.submit_file(
+                    competition_name=challenge_name,
+                    file_path=submission_path,
+                    description=f"DSGym auto submission {challenge_name}",
+                )
+                score_info = manager.wait_for_submission(ref, timeout_minutes=self.timeout_minutes)
+                return score_info
+            except Exception as exc:
+                if _is_retryable(exc):
+                    last_exc = exc
+                    print(f"⚠️  Submission attempt {attempt + 1} failed ({exc})")
+                else:
+                    raise
+        raise last_exc
     def evaluate(
         self,
         prediction: str,

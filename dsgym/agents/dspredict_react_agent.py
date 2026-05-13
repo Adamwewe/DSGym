@@ -129,8 +129,64 @@ class DSPredictReActAgent(ReActDSAgent):
             print(f"{submission_file=}")
             success = False
             if os.path.exists(submission_file):
-                success = True
                 challenge_name = sample.get("extra_info", {}).get("challenge_name", "")
+
+                # ── submission format validation ──────────────────────────────
+                # Check the generated CSV against sample_submission.csv on the
+                # host.  If format errors are found, inject them back into the
+                # conversation and give the agent up to 5 extra turns to fix
+                # the file before we accept it.
+                try:
+                    from dsgym.eval.metrics.dspredict.dspredict_metric import _validate_submission
+                    MAX_FIX_TURNS = 5
+                    for fix_attempt in range(MAX_FIX_TURNS + 1):
+                        errors = _validate_submission(submission_file, challenge_name)
+                        if not errors:
+                            break  # submission is valid
+                        if fix_attempt == MAX_FIX_TURNS:
+                            print(f"⚠️  Submission still invalid after {MAX_FIX_TURNS} fix turns — uploading anyway")
+                            break
+
+                        error_lines = "\n".join(f"  - {e}" for e in errors)
+                        print(f"⚠️  submission.csv format errors (fix attempt {fix_attempt + 1}):\n{error_lines}")
+                        fix_msg = (
+                            f"Your submission.csv has format errors that Kaggle will reject:\n{error_lines}\n\n"
+                            f"The expected format is defined in "
+                            f"/data/dspredict-sampled/{challenge_name}/sample_submission.csv inside the container.\n"
+                            f"Fix the column names and/or row count, overwrite submission.csv, and confirm it matches "
+                            f"the sample exactly (same columns, same number of rows)."
+                        )
+                        conversation.append({"role": "user", "content": fix_msg})
+
+                        # Run one more agent turn to fix the file
+                        try:
+                            pruned = self._prune_conversation(conversation)
+                            response = self.backend_instance.generate(pruned)
+                            step_output = env.step(response)
+                            actual_turns += 1
+                            conversation.append({
+                                "role": "assistant",
+                                "content": step_output.get("postprocessed_action", response),
+                            })
+                            trajectory = self.append_traj(
+                                trajectory, actual_turns, "assistant", response,
+                                step_output.get("done", False), step_output.get("reward", 0.0), 0.0
+                            )
+                            if step_output.get("observations"):
+                                conversation.extend(step_output["observations"])
+                                trajectory = self.append_traj(
+                                    trajectory, actual_turns, "user",
+                                    step_output["observations"][0]["content"],
+                                    step_output.get("done", False), step_output.get("reward", 0.0), 0.0
+                                )
+                        except Exception as fix_err:
+                            print(f"Fix turn {fix_attempt + 1} execution error: {fix_err}")
+                            break
+                except Exception as val_err:
+                    print(f"⚠️  Could not run submission validation: {val_err}")
+                # ─────────────────────────────────────────────────────────────
+
+                success = True
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 unique_name = f"{challenge_name}_{container_id}_{timestamp}_submission.csv"
                 unique_path = os.path.join(container_dir, unique_name)

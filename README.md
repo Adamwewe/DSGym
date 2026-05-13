@@ -697,14 +697,46 @@ Kaggle API client** with a new connection pool, which is the root cause fix for
 `BrokenPipeError` — stale HTTP connections in `KaggleClient` were silently
 failing on subsequent API calls after the first connection dropped.
 
+Uploads use `requests` (not `httpx`) with a file-like body so that urllib3
+honours the `Content-Length` header and never adds `Transfer-Encoding: chunked`.
+Sending both headers simultaneously caused GCS to reset the connection near the
+end of large uploads. TCP keepalive (30s probe interval) is also enabled on the
+upload socket to prevent NAT/firewall table expiry during slow transfers.
+
 | Stage | Retries | Behaviour |
 |---|---|---|
-| File upload (PUT to GCS presigned URL) | 3 | Fresh presigned URL fetched per attempt; 15s / 30s backoff |
-| Full submission flow (upload + wait) | 3 | New `KaggleClient` per attempt; 20s–30s jittered backoff |
+| File upload (PUT to GCS presigned URL) | 5 (outer) | New `KaggleClient` per attempt; 20s–30s jittered backoff |
 | Score polling (`GetSubmission`) | Continuous until timeout | Jittered 30 ± 10s interval; transient errors logged and retried |
 
 Parallel workers use a random initial delay (5–20s) before their first poll so
 they don't all hit the Kaggle API simultaneously.
+
+### Submission format validation
+
+Before a file is uploaded to Kaggle the agent automatically validates the
+generated `submission.csv` against the local `sample_submission.csv`:
+
+- **Missing required columns** — e.g. column expected by Kaggle is absent
+- **Extra/unexpected columns** — columns not present in the sample
+- **Wrong row count** — number of rows doesn't match the sample
+
+If errors are found the framework injects a detailed error message back into the
+agent's conversation and gives it up to **5 extra turns** to fix the file.
+After each fix turn the file is re-validated. If all fix turns are exhausted the
+file is uploaded anyway (rather than losing the result entirely) and the
+`error_description` returned by Kaggle is printed and stored in the checkpoint.
+
+The validation snippet is also included in both agent system prompts so the
+agent validates its own output before finishing:
+
+```python
+import pandas as pd
+sample = pd.read_csv('/data/dspredict-sampled/<challenge>/sample_submission.csv')
+sub    = pd.read_csv('/submission/submission.csv')
+assert list(sub.columns) == list(sample.columns), f"Column mismatch: {list(sample.columns)}"
+assert len(sub) == len(sample), f"Row count mismatch: expected {len(sample)}, got {len(sub)}"
+print("Format OK")
+```
 
 ### Typical recovery workflow
 

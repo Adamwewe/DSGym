@@ -36,28 +36,85 @@ def _safe_float(x):
         return None
 
 
-def _progress_reader(file_path: str, file_size: int, chunk_size: int = 1024 * 1024):
-    """Generator that streams a file in chunks while printing upload progress.
+class _ProgressWrapper:
+    """File-like wrapper that prints upload progress.
 
-    Streams directly from disk so we never load the full file into RAM — important
-    for large submission files (hundreds of MB).  httpx accepts a generator as
-    ``content`` when ``Content-Length`` is also provided.
+    Works with ``requests.put(data=wrapper)`` — requests calls ``read(n)``
+    repeatedly, which lets us track progress without loading the whole file
+    into memory.
+
+    Using a file-like object (not a generator) is critical: ``requests``/urllib3
+    will honour a manually-set ``Content-Length`` header and will NOT add
+    ``Transfer-Encoding: chunked``.  When httpx receives a generator it always
+    adds chunked encoding even when ``Content-Length`` is also present, which
+    sends conflicting headers to GCS and causes the server to drop the
+    connection near the end of large uploads.
     """
-    uploaded = 0
-    last_report = 0
-    report_every = max(file_size // 20, chunk_size)  # report ~every 5%
-    with open(file_path, "rb") as f:
-        while True:
-            chunk = f.read(chunk_size)
-            if not chunk:
-                break
-            uploaded += len(chunk)
-            yield chunk
-            if uploaded - last_report >= report_every or uploaded == file_size:
-                pct = 100.0 * uploaded / file_size if file_size else 100
-                print(f"  … {uploaded / (1024*1024):.1f} / {file_size / (1024*1024):.1f} MB  ({pct:.0f}%)",
-                      flush=True)
-                last_report = uploaded
+
+    def __init__(self, file_path: str, file_size: int, chunk_size: int = 1024 * 1024):
+        self._path = file_path
+        self._file_size = file_size
+        self._chunk_size = chunk_size
+        self._uploaded = 0
+        self._last_report = 0
+        self._report_every = max(file_size // 20, chunk_size)
+        self._fh = open(file_path, "rb")
+
+    # requests calls read(n) with a fixed block size
+    def read(self, n: int = -1) -> bytes:
+        chunk = self._fh.read(self._chunk_size if n == -1 else n)
+        if chunk:
+            self._uploaded += len(chunk)
+            if (self._uploaded - self._last_report >= self._report_every
+                    or self._uploaded == self._file_size):
+                pct = 100.0 * self._uploaded / self._file_size if self._file_size else 100
+                print(
+                    f"  … {self._uploaded / (1024*1024):.1f} /"
+                    f" {self._file_size / (1024*1024):.1f} MB  ({pct:.0f}%)",
+                    flush=True,
+                )
+                self._last_report = self._uploaded
+        return chunk
+
+    def close(self):
+        self._fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def _make_upload_session():
+    """Return a requests.Session with TCP keep-alive tuned for large uploads.
+
+    TCP keepalive prevents NAT/firewall tables from expiring the connection
+    during a slow, multi-minute upload — without it the remote end receives
+    no data for the keepalive idle period and resets the TCP connection,
+    producing ``BrokenPipeError``.
+    """
+    import socket
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    class _KeepAliveAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            opts = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+            if hasattr(socket, "TCP_KEEPIDLE"):      # Linux
+                opts += [
+                    (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30),
+                    (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10),
+                    (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6),
+                ]
+            elif hasattr(socket, "TCP_KEEPALIVE"):   # macOS
+                opts.append((socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 30))
+            kwargs["socket_options"] = opts
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    session.mount("https://", _KeepAliveAdapter())
+    return session
 
 
 class DSPredictSubmissionManager:
@@ -101,7 +158,6 @@ class DSPredictSubmissionManager:
             ApiCreateSubmissionRequest,
             ApiStartSubmissionUploadRequest,
         )
-        import httpx
 
         file_size = os.path.getsize(file_path)
         file_name = os.path.basename(file_path)
@@ -112,42 +168,38 @@ class DSPredictSubmissionManager:
         upload_request.content_length = file_size
         upload_request.file_name = file_name
 
-        last_exc = None
-        for attempt in range(3):
-            if attempt > 0:
-                wait_secs = 15 * attempt
-                print(f"⚠️  Upload attempt {attempt + 1} for {competition_name}, retrying in {wait_secs}s…")
-                time.sleep(wait_secs)
+        upload_response = self.client.competitions.competition_api_client.start_submission_upload(
+            upload_request
+        )
 
-            # Fetch a fresh presigned URL for every attempt – the old one may
-            # have been invalidated by a previous failed PUT.
-            upload_response = self.client.competitions.competition_api_client.start_submission_upload(upload_request)
+        print(f"⬆️  Uploading {file_name} ({file_size_mb:.1f} MB) to {competition_name}…")
+        upload_start = time.time()
 
-            try:
-                # Use httpx so we can set write=None (no write-side timeout).
-                # requests has no configurable write timeout; large files can
-                # stall mid-upload causing TimeoutError on the write operation.
-                timeout = httpx.Timeout(connect=30.0, read=600.0, write=None, pool=30.0)
-                print(f"⬆️  Uploading {file_name} ({file_size_mb:.1f} MB) to {competition_name}…")
-                upload_start = time.time()
-                with httpx.Client(timeout=timeout) as client:
-                    response = client.put(
-                        upload_response.create_url,
-                        content=_progress_reader(file_path, file_size),
-                        headers={"Content-Length": str(file_size)},
-                    )
-                elapsed = time.time() - upload_start
-                speed_mbps = file_size_mb / elapsed if elapsed > 0 else 0
-                print(f"✅ Upload complete: {file_size_mb:.1f} MB in {elapsed:.0f}s ({speed_mbps:.1f} MB/s)")
-                response.raise_for_status()
-                last_exc = None
-                break
-            except Exception as exc:
-                last_exc = exc
-                print(f"⚠️  PUT failed (attempt {attempt + 1}): {exc}")
+        # Use requests (not httpx) with a file-like wrapper so that urllib3
+        # honours the Content-Length header and does NOT add
+        # Transfer-Encoding: chunked.  httpx always adds chunked encoding for
+        # generator content even when Content-Length is provided, which sends
+        # conflicting headers to GCS and causes the server to reset the
+        # connection near the end of large uploads (BrokenPipeError).
+        #
+        # timeout=(30, None): 30 s to connect, then blocking for the upload
+        # and response — no write-side timeout for slow connections.
+        with _make_upload_session() as session, \
+                _ProgressWrapper(file_path, file_size) as wrapper:
+            response = session.put(
+                upload_response.create_url,
+                data=wrapper,
+                headers={
+                    "Content-Length": str(file_size),
+                    "Content-Type": "application/octet-stream",
+                },
+                timeout=(30, None),
+            )
 
-        if last_exc is not None:
-            raise last_exc
+        elapsed = time.time() - upload_start
+        speed_mbps = file_size_mb / elapsed if elapsed > 0 else 0
+        print(f"✅ Upload complete: {file_size_mb:.1f} MB in {elapsed:.0f}s ({speed_mbps:.1f} MB/s)")
+        response.raise_for_status()
 
         submit_request = ApiCreateSubmissionRequest()
         submit_request.competition_name = competition_name
@@ -167,6 +219,7 @@ class DSPredictSubmissionManager:
             "public_score": submission.public_score,
             "private_score": submission.private_score,
             "status": str(submission.status),
+            "error_description": submission.error_description or "",
         }
 
     def wait_for_submission(self, submission_ref: str, timeout_minutes: int = 30) -> Dict[str, Any]:
@@ -187,12 +240,84 @@ class DSPredictSubmissionManager:
             if "COMPLETE" in status:
                 return info
             if "ERROR" in status:
+                err = info.get("error_description", "")
+                if err:
+                    print(f"⚠️  Kaggle error: {err}")
                 return info
             # Jittered poll interval: base 30s ± 10s so workers stay out of sync
             time.sleep(30 + random.uniform(-10, 10))
         final_info = self.get_submission_score(submission_ref)
         final_info["status"] = str(final_info.get("status", "TIMEOUT"))
         return final_info
+
+
+def _validate_submission(submission_path: str, challenge_name: str) -> list:
+    """Validate a submission CSV against the local sample submission.
+
+    Returns a list of human-readable error strings (empty = valid).
+    Looks for ``sample_submission*.csv`` in any known data split under
+    ``data/data/dspredict-{split}/{challenge_name}/``.
+
+    The errors are injected back into the agent's conversation so it can
+    self-correct before the file is uploaded to Kaggle.
+    """
+    import csv
+    import glob as _glob
+
+    try:
+        from dsgym.datasets.config import RAW_DATA_DIR
+        base = RAW_DATA_DIR
+    except Exception:
+        return []
+
+    sample_path = None
+    for split in ("sampled", "easy", "hard", "lite"):
+        pattern = str(base / f"dspredict-{split}" / challenge_name / "sample_submission*.csv")
+        matches = [p for p in _glob.glob(pattern) if not p.endswith(".zip")]
+        if matches:
+            sample_path = matches[0]
+            break
+
+    if sample_path is None:
+        return []
+
+    errors = []
+
+    try:
+        with open(sample_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            expected_cols = next(reader, None)
+            expected_rows = sum(1 for _ in reader)
+    except Exception as e:
+        return [f"Could not read sample submission: {e}"]
+
+    if not expected_cols:
+        return []
+
+    try:
+        with open(submission_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            actual_cols = next(reader, None)
+            actual_rows = sum(1 for _ in reader)
+    except Exception as e:
+        return [f"Could not read submission file: {e}"]
+
+    if not actual_cols:
+        return ["Submission file appears to be empty or has no header"]
+
+    missing = sorted(set(expected_cols) - set(actual_cols))
+    extra   = sorted(set(actual_cols)   - set(expected_cols))
+
+    if missing:
+        errors.append(f"Missing required columns: {missing}")
+    if extra:
+        errors.append(f"Extra/unexpected columns (remove these): {extra}")
+    if actual_rows != expected_rows:
+        errors.append(
+            f"Wrong number of rows: expected {expected_rows:,}, got {actual_rows:,}"
+        )
+
+    return errors
 
 @retry(wait=wait_random(10, 15))
 def get_next_page(client, req):
@@ -369,7 +494,7 @@ class KaggleSubmissionMetric(BaseMetric):
         completely fresh connection pool, which clears the stale-connection issue.
         """
         last_exc = None
-        for attempt in range(3):
+        for attempt in range(5):
             if attempt > 0:
                 wait_secs = 20 * attempt + random.uniform(0, 10)
                 print(f"⚠️  Submission attempt {attempt + 1} for {challenge_name}, retrying in {wait_secs:.0f}s…")

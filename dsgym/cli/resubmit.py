@@ -128,7 +128,7 @@ def _resubmit_one(filepath: Path, timeout_minutes: int, dry_run: bool) -> dict:
 
     Returns a summary dict with keys: filepath, challenge, status, score, error.
     """
-    summary = {"filepath": str(filepath), "challenge": None, "status": None, "score": None, "error": None}
+    summary = {"filepath": str(filepath), "challenge": None, "status": None, "score": None, "error": None, "kaggle_error": None}
 
     try:
         with open(filepath, encoding="utf-8") as f:
@@ -193,6 +193,7 @@ def _resubmit_one(filepath: Path, timeout_minutes: int, dry_run: bool) -> dict:
     details = result_dict.get("details", {})
     summary["status"] = details.get("status", "UNKNOWN")
     summary["score"] = result_dict.get("score")
+    summary["kaggle_error"] = details.get("error_description", "") or ""
     return summary
 
 
@@ -290,7 +291,9 @@ def _print_summary_row(s: dict) -> None:
         print(f"  🔍 {name}: dry-run ok")
     else:
         score_str = f"{s['score']:.6f}" if s["score"] is not None else "no score"
-        print(f"  ✅ {name}: {s['status']} | score={score_str}")
+        kaggle_err = s.get("kaggle_error", "")
+        suffix = f" — {kaggle_err}" if kaggle_err else ""
+        print(f"  ✅ {name}: {s['status']} | score={score_str}{suffix}")
 
 
 def _print_dspredict_overview(checkpoint_files: list) -> None:

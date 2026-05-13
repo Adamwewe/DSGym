@@ -34,7 +34,17 @@ When you finished training the best model, you should generate the final submiss
 
 1. Use the best model to generate predictions for the test data located at the path shown above.
 2. Save predictions in the required **`submission.csv` format** for the competition at /submission/submission.csv.
-3. Provide a concise summary of your approach in the format: <answer>your final summary</answer>
+3. **Validate the submission format** by comparing your file against the sample submission:
+   ```python
+   import pandas as pd
+   sample = pd.read_csv('/data/dspredict-sampled/{challenge_name}/sample_submission.csv')
+   submission = pd.read_csv('/submission/submission.csv')
+   assert list(submission.columns) == list(sample.columns), f"Column mismatch: expected {list(sample.columns)}, got {list(submission.columns)}"
+   assert len(submission) == len(sample), f"Row count mismatch: expected {len(sample)}, got {len(submission)}"
+   print("Submission format OK")
+   ```
+   Fix any column name, column order, or row count mismatches before finishing.
+4. Provide a concise summary of your approach in the format: <answer>your final summary</answer>
 """
 
 

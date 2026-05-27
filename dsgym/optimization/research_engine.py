@@ -235,6 +235,36 @@ def _template_harness_variants() -> List[TextVariant]:
     ]
 
 
+_KIND_LABELS: Dict[str, str] = {
+    "prompt": (
+        "analytical methodology directives — reasoning approach, domain-specific priorities, "
+        "and risk or quality management during analysis"
+    ),
+    "context": (
+        "task framing and acceptance criteria — research brief structure, "
+        "intermediate output validation rules, and goal-clarity aids"
+    ),
+    "harness": (
+        "execution constraints and compliance contracts — plan adherence rules, "
+        "loop and repetition prohibition, and plan deviation/revision protocol"
+    ),
+}
+
+_DOMAIN_DESCRIPTIONS: Dict[str, str] = {
+    "dsbio": (
+        "computational biology tasks: single-cell RNA-seq analysis, differential expression, "
+        "pathway enrichment, statistical hypothesis testing on biological datasets. "
+        "Agents must handle biological assumptions explicitly, gate on QC results, "
+        "and produce reproducible analytical choices."
+    ),
+    "dspredict": (
+        "Kaggle-style ML competition tasks: feature engineering, model selection, "
+        "hyperparameter tuning, leakage prevention, and valid submission generation. "
+        "Agents must respect evaluation metrics and avoid overfitting to the public leaderboard."
+    ),
+}
+
+
 def _first_json_object(raw_text: str) -> Dict[str, Any]:
     text = (raw_text or "").strip()
     if not text:
@@ -264,6 +294,8 @@ def _llm_generate_variants(
     family: str,
     model: str,
     count: int,
+    *,
+    existing_names: Optional[List[str]] = None,
 ) -> List[TextVariant]:
     try:
         import litellm
@@ -273,31 +305,51 @@ def _llm_generate_variants(
     if count <= 0:
         return []
 
+    domain_description = _DOMAIN_DESCRIPTIONS.get(family, f"{family} data science tasks")
+    kind_label = _KIND_LABELS.get(kind, kind)
+    existing_str = (
+        ", ".join(existing_names) if existing_names else "none yet — all angles are available"
+    )
+
     system_prompt = (
-        "You are designing concise experiment directives for data-science agents. "
-        "Return only JSON and no surrounding text."
+        "You are an expert AI research engineer designing precise, domain-specific directives "
+        "for data-science ReAct agents. "
+        "The agent operates in a multi-turn loop using <reasoning>, <python>, and <information> "
+        "blocks. Each variant you generate is injected as a short addendum to the agent's existing "
+        "system or user prompt — it does NOT replace the full prompt. "
+        "Variants must be immediately actionable, specific to the target dimension and domain, "
+        "and clearly distinct from any existing variants. Return only JSON."
     )
     user_prompt = (
-        f"Create {count} {kind} variants for DSGym ({family}). "
-        "Each variant should be short, actionable, and suitable for local POC experiments. "
-        "Avoid fluff. JSON schema:\n"
+        f"Generate {count} distinct '{kind}' variants for a data-science agent.\n\n"
+        f"Target dimension: {kind_label}\n"
+        f"Domain: {domain_description}\n\n"
+        f"Existing variant names (your variants MUST take a different angle from these): {existing_str}\n\n"
+        "Requirements:\n"
+        "- Each variant text: 15–80 words, concrete and specific (no generic advice).\n"
+        "- Each variant must address the target dimension from a clearly distinct perspective.\n"
+        "- Names must be concise unique snake_case identifiers.\n\n"
+        "Return ONLY valid JSON:\n"
         "{\n"
         '  "variants": [\n'
         '    {"name": "short_snake_case", "text": "directive text"}\n'
         "  ]\n"
-        "}\n"
-        "Keep each text under 90 words."
+        "}"
     )
 
+    call_kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.8,
+    }
+    if _supports_json_object_format(model):
+        call_kwargs["response_format"] = {"type": "json_object"}
+
     try:
-        response = litellm.completion(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
+        response = litellm.completion(**call_kwargs)
         content = response.choices[0].message.content
     except Exception:
         return []
@@ -377,6 +429,7 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
                 family=family,
                 model=config.generation_model,
                 count=config.generated_variants_per_type,
+                existing_names=[v.name for v in prompt_variants],
             )
         )
         context_variants.extend(
@@ -385,6 +438,7 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
                 family=family,
                 model=config.generation_model,
                 count=config.generated_variants_per_type,
+                existing_names=[v.name for v in context_variants],
             )
         )
         harness_variants.extend(
@@ -393,6 +447,7 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
                 family=family,
                 model=config.generation_model,
                 count=config.generated_variants_per_type,
+                existing_names=[v.name for v in harness_variants],
             )
         )
 

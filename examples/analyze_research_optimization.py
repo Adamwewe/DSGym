@@ -73,6 +73,17 @@ def analyze(input_dir: Path) -> Dict[str, Any]:
     }
 
 
+def _fmt_exact(value: Any) -> str:
+    """Format an exact-match accuracy value; return 'n/a' when unavailable or NaN."""
+    try:
+        f = float(value)
+        if math.isfinite(f):
+            return f"{f:.4f}"
+    except (TypeError, ValueError):
+        pass
+    return "n/a"
+
+
 def _render_markdown(report: Dict[str, Any]) -> str:
     if report.get("total_trials", 0) == 0:
         return "# Research Optimization Report\n\nNo trial records found."
@@ -98,8 +109,11 @@ def _render_markdown(report: Dict[str, Any]) -> str:
     lines.append("|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
     for row in report.get("top_balanced", [])[:10]:
         lines.append(
-            "| {trial_number} | {prompt_variant} | {context_variant} | {harness_variant} | {mean_quality:.4f} | {mean_success:.4f} | {exact_match_accuracy:.4f} | {mean_compliance:.4f} | {mean_time:.2f} | {mean_turns:.2f} | {dag_help_delta:+.4f} |".format(
-                **row
+            "| {trial_number} | {prompt_variant} | {context_variant} | {harness_variant} |"
+            " {mean_quality:.4f} | {mean_success:.4f} | {exact_acc} |"
+            " {mean_compliance:.4f} | {mean_time:.2f} | {mean_turns:.2f} | {dag_help_delta:+.4f} |".format(
+                exact_acc=_fmt_exact(row.get("exact_match_accuracy")),
+                **row,
             )
         )
 
@@ -110,8 +124,10 @@ def _render_markdown(report: Dict[str, Any]) -> str:
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for variant, stats in sorted(report.get("harness_variant_stats", {}).items()):
         lines.append(
-            "| {variant} | {n:.0f} | {mean_quality:.4f} | {mean_success:.4f} | {mean_exact_match_accuracy:.4f} | {mean_compliance:.4f} | {mean_time:.2f} | {mean_turns:.2f} | {mean_dag_help_delta:+.4f} |".format(
+            "| {variant} | {n:.0f} | {mean_quality:.4f} | {mean_success:.4f} | {exact_acc} |"
+            " {mean_compliance:.4f} | {mean_time:.2f} | {mean_turns:.2f} | {mean_dag_help_delta:+.4f} |".format(
                 variant=variant,
+                exact_acc=_fmt_exact(stats.get("mean_exact_match_accuracy")),
                 **stats,
             )
         )

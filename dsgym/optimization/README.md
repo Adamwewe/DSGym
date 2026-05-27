@@ -125,18 +125,51 @@ The existing `dsgym eval ...` workflow remains unchanged.
 
 Optimization uses an environment-driven prompt profile override (`DSGYM_DAG_PROMPT_PROFILE`) consumed by DAG prompt builders. If unset, default prompts are used exactly as before.
 
-## Research Optimization Engine (Prompt + Context + Harness + DAG Ablation)
+## Research Optimization Engine (DAG Prompts + Context + Harness + DAG Ablation)
 
 For a full operational playbook that builds directly on DSGym README commands,
 see `docs/RESEARCH_ENGINE_RUNBOOK.md`.
 
-To support broader 2026-style research workflows, DSGym also provides a research optimizer that:
+### Primary Target: DAG Generation Prompts
 
-- evolves prompt/context/harness directives (not only static DAG profile fields)
-- optionally generates additional candidate variants using an LLM (`--generation-model`)
-- runs DAG-vs-noDAG ablations per trial (`--no-dag-ablation` to disable)
-- logs harness-compliance diagnostics (step skipping, looping, stalled runs)
-- returns a Pareto front across quality, speed, and compliance
+The **reasoning DAG** and **implementation DAG** generation prompts are the primary optimization target. DAGs define the analytical plan that the agent is required to follow before any data science code runs. Poorly constructed plans — wrong reasoning framework, missing domain-specific gates, overly coarse or fine decomposition — degrade agent performance independently of agent capability. Optimizing the DAG generation prompts therefore directly improves the quality of plans that agents are given.
+
+The optimizer searches across a 15-parameter search space for the reasoning and implementation DAG system prompts. In the same NSGA-II study it also searches context (task framing presented to the agent after DAGs are generated) and harness (compliance contract directives).
+
+### DAG Prompt Search Space
+
+`_compose_prompt_profile` builds **separate** prompt extensions for the reasoning DAG and implementation DAG generation calls. All parameters are tuned per trial:
+
+**Shared parameters (15 total)**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `max_nodes` | int [3, 8] | Maximum allowed nodes in the DAG |
+| `mandate_json` | bool | Force strict JSON output contract |
+| `decomposition` | categorical | `coarse_grained`, `fine_grained`, `adaptive` |
+| `require_risk_check` | bool | Require explicit risk/assumption node in reasoning DAG |
+| `require_validation_step` | bool | Require explicit validation node in implementation DAG |
+| `include_budget` | bool | Include token/computation budget guidance |
+| `reasoning_framework` | categorical | `top_down`, `risk_first`, `validation_gated`, `metric_anchored`, `assumption_audit` |
+| `require_expected_output` | bool | Require expected output specification in reasoning nodes |
+| `impl_specificity` | categorical | `task_description`, `library_agnostic_ops`, `api_guided` |
+| `impl_output_contract` | bool | Require explicit output file/object contract per implementation node |
+
+**Domain-specific: dsbio**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `bio_qc_gate` | bool | Include QC gate node in reasoning DAG |
+| `bio_stat_test_selection` | bool | Mandate explicit statistical test selection node |
+| `bio_interpretation` | bool | Require biological interpretation in final reasoning node |
+
+**Domain-specific: dspredict**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `leakage_prevention` | bool | Include explicit leakage-prevention assertion in implementation DAG |
+| `metric_alignment` | bool | First reasoning node must anchor to submission metric |
+| `cv_strategy_explicit` | bool | Include explicit cross-validation strategy node |
 
 ### Objective definitions
 
@@ -156,7 +189,7 @@ Then trial objectives are:
 - maximize `C = (1/|M|) * Σ c_m`
 - maximize `Δ_DAG = q_dags - q_nodags` (0 when no paired ablation exists)
 
-This yields a 5-objective NSGA-II search over quality/performance/compliance trade-offs.
+`mean_success_rate` is also computed and stored in trial records but is **not** a Pareto objective. This yields a 5-objective NSGA-II search over quality/performance/compliance trade-offs.
 
 Run:
 
@@ -183,7 +216,7 @@ Main artifacts:
 Per-mode trial records include:
 
 - quality metric summary (`quality_mean`, metric name, evaluable counts)
-- exact-match extraction (`exact_match_correct`, `exact_match_accuracy`) when available
+- exact-match accuracy (`exact_match_correct / exact_match_evaluable`) when available
 - strict harness compliance diagnostics (`violation_rates`, loop/skip/regression counters)
 - execution-time and turn statistics
 
@@ -198,6 +231,18 @@ This writes:
 
 - `research_report.json`
 - `research_report.md`
+
+Run variant attribution analysis (bootstrap significance per variant group):
+
+```bash
+uv run python examples/attribute_research_variants.py \
+  --input-dir ./optimization_results/research \
+  --selector top-balanced --top-k 10 \
+  --n-bootstrap 5000 --seed 42
+```
+
+This writes `attribution_report.md` with per-variant-group bootstrap mean delta and significance for each of the five objectives. Groups with n < 5 are flagged as exploratory due to NSGA-II adaptive sampling bias.
+
 
 ## Visualization and Cross-Run Comparison
 

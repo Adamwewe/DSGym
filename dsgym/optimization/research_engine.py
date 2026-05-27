@@ -600,9 +600,11 @@ def _compute_quality_summary(results: List[Any], aggregated_metrics: Dict[str, A
 
     exact_match_correct = float(sum(1 for score in exact_scores if score >= 0.999999))
     exact_match_evaluable = float(len(exact_scores))
+    # Denominator is evaluable count, not total_samples — tasks without exact-match
+    # metrics must not dilute the accuracy of those that do have them.
     exact_match_accuracy = (
-        exact_match_correct / float(total_samples)
-        if total_samples > 0 and exact_scores
+        exact_match_correct / exact_match_evaluable
+        if exact_match_evaluable > 0
         else None
     )
 

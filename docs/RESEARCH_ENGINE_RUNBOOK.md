@@ -6,9 +6,11 @@ This runbook operationalizes the DSGym README workflows and extends them into a 
 
 This engine is designed to directly answer:
 
-1. Which prompt/context/harness patterns improve agent quality and generalization?
+1. Which **reasoning DAG and implementation DAG prompt configurations** produce plans that agents follow successfully, producing better task outcomes?
 2. Do DAG-guided workflows help or hurt relative to non-DAG baselines?
 3. Does strict plan-following harness behavior reduce failure modes like skipping and looping while preserving quality and speed?
+
+**Primary focus:** The reasoning DAG and implementation DAG generation prompts are the principal optimization target. The DAGs define the analytical plan that the agent is required to follow. A poorly constructed plan — wrong reasoning framework, missing domain-specific gates, overly coarse or fine decomposition — degrades agent performance independent of agent capability. The optimizer searches the DAG prompt space first, then also varies context (task framing to agent) and harness (compliance contracts) in the same 5-objective NSGA-II study.
 
 Primary outputs for direct answers:
 - Quality metrics (exact match when available, dataset-adapted quality otherwise)
@@ -16,6 +18,7 @@ Primary outputs for direct answers:
 - Strict harness compliance metrics (skip, loop, regression, stall)
 - Execution-time and turn-efficiency statistics
 - Pareto fronts across quality/speed/compliance
+- Variant attribution report (bootstrap significance per variant group)
 
 ## 2) Prerequisites (from DSGym README, then extended)
 
@@ -57,7 +60,7 @@ Example:
 Recommended smoke-test first:
 - uv run python examples/optimize_research_engine.py --model gpt-4o --dataset dsbio --backend litellm --limit 3 --trials 6 --population-size 4 --output-dir ./optimization_results/research_smoke
 
-## 5) Analysis and Visualization
+## 5) Analysis, Visualization, and Attribution
 
 1. Structured report
 - uv run python examples/analyze_research_optimization.py --input-dir ./optimization_results/research
@@ -67,6 +70,11 @@ Recommended smoke-test first:
 
 3. Consolidated HTML dashboard
 - uv run python examples/build_research_dashboard.py --input-dirs ./optimization_results/research ./optimization_results/research_model_b --labels model_a model_b --output-html ./optimization_results/research/research_dashboard.html
+
+4. Variant attribution analysis (bootstrap significance per variant group)
+- uv run python examples/attribute_research_variants.py --input-dir ./optimization_results/research --selector top-balanced --top-k 10 --n-bootstrap 5000 --seed 42
+
+Outputs a markdown report (attribution_report.md) with per-variant-group bootstrap mean delta and significance for each of the five objectives. Groups with n < 5 trials are flagged as exploratory due to NSGA-II adaptive sampling bias.
 
 ## 6) Regression Gating and Statistical Confidence
 
@@ -147,9 +155,46 @@ Where:
 - r_m: mode mean turns
 - c_m: mode mean compliance
 
-Optimization uses NSGA-II over these five objectives.
+Optimization uses NSGA-II over these five objectives. `mean_success_rate` is also computed but is not a Pareto objective (it is stored in trial records only).
 
-## 10) Validation Checklist (Senior/Principal Engineering Standard)
+## 10) DAG Prompt Search Space
+
+`_compose_prompt_profile` builds separate prompt extensions for the **reasoning DAG** and the **implementation DAG** generation calls. The parameters below are tuned per trial by NSGA-II:
+
+**Shared DAG parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `max_nodes` | int [3, 8] | Maximum allowed nodes in the DAG |
+| `mandate_json` | bool | Force strict JSON output contract in system prompt |
+| `decomposition` | categorical | `coarse_grained`, `fine_grained`, `adaptive` |
+| `require_risk_check` | bool | Require explicit risk/assumption node in reasoning DAG |
+| `require_validation_step` | bool | Require explicit validation node in implementation DAG |
+| `include_budget` | bool | Include token/computation budget guidance |
+| `reasoning_framework` | categorical | `top_down`, `risk_first`, `validation_gated`, `metric_anchored`, `assumption_audit` |
+| `require_expected_output` | bool | Require expected output specification in reasoning nodes |
+| `impl_specificity` | categorical | `task_description`, `library_agnostic_ops`, `api_guided` |
+| `impl_output_contract` | bool | Require explicit output file/object contract per implementation node |
+
+**Domain-specific: dsbio**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `bio_qc_gate` | bool | Include QC gate node in reasoning DAG |
+| `bio_stat_test_selection` | bool | Mandate explicit statistical test selection node |
+| `bio_interpretation` | bool | Require biological interpretation in final reasoning node |
+
+**Domain-specific: dspredict**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `leakage_prevention` | bool | Include explicit leakage-prevention assertion in implementation DAG |
+| `metric_alignment` | bool | First reasoning node must anchor to submission metric |
+| `cv_strategy_explicit` | bool | Include explicit cross-validation strategy node |
+
+The reasoning and implementation DAGs receive separate prompt extensions (`reasoning_extension` / `implementation_extension`) so each axis of the search space can be tuned independently.
+
+## 11) Validation Checklist (Senior/Principal Engineering Standard)
 
 Before claiming results:
 
@@ -162,6 +207,7 @@ Before claiming results:
 - Verify dataset/task setup and manager connectivity
 - Confirm quality metric alignment with task semantics
 - Confirm DAG ablation actually runs both modes
+- Verify `exact_match_accuracy` denominator: reported as `correct / evaluable_tasks`, not `correct / all_tasks`
 
 3. Efficiency
 - Use cached variant bank unless intentionally regenerating
@@ -170,13 +216,15 @@ Before claiming results:
 4. Reliability
 - Run regression gate against stable baseline
 - Run bootstrap significance for top deltas
+- Run variant attribution analysis to identify which variant groups drive gains
 - Review strict harness violation breakdown
 
 5. Reporting
 - Publish HTML dashboard + CSV summaries
 - Keep raw trial artifacts for audit
+- Confirm exact-match columns show `n/a` when metric not applicable to the dataset
 
-## 11) Interpreting Direct Answers
+## 12) Interpreting Direct Answers
 
 A candidate change is likely beneficial when all are true:
 - mean quality non-inferior or improved
@@ -184,5 +232,6 @@ A candidate change is likely beneficial when all are true:
 - time/turns not materially regressed
 - DAG help delta does not degrade unexpectedly
 - bootstrap CI supports improvement direction for key metrics
+- variant attribution identifies at least one variant group with statistically significant positive contribution
 
 If these conditions are not met, treat conclusions as inconclusive and iterate on variants/harness policy before scaling.

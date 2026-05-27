@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Protocol
+from typing import Any, Dict, List, Protocol, Tuple
 
 
 @dataclass
@@ -55,4 +55,30 @@ class ModeEvaluatorAdapter(Protocol):
         quality_adapter: QualityMetricAdapter,
         harness_adapter: HarnessPolicyAdapter,
     ) -> ModeEvaluationRecord:
+        ...
+
+
+class ResearchContextAdapter(Protocol):
+    """Adapter that supplies dataset context and task banks for optimization.
+
+    Returns:
+    - dataset: dataset handle/object used by downstream evaluator(s)
+    - family: dataset family name used for prompt-profile composition
+    - task_bank: mapping {use_dags_bool: tasks}
+    """
+
+    def prepare_context(self, config: Any) -> Tuple[Any, str, Dict[bool, List[Dict[str, Any]]]]:
+        ...
+
+
+class TaskMutatorAdapter(Protocol):
+    """Adapter that applies prompt/context/harness variants to task payloads."""
+
+    def mutate(
+        self,
+        base_tasks: List[Dict[str, Any]],
+        prompt_variant: Any,
+        context_variant: Any,
+        harness_variant: Any,
+    ) -> List[Dict[str, Any]]:
         ...

@@ -242,6 +242,17 @@ dsgym eval \
     --max-workers 1
 ```
 
+### Research Optimization Runbook
+
+For an end-to-end research and benchmarking workflow that builds directly on the
+evaluation commands above (optimization, regression gating, significance testing,
+dashboarding, and non-DSGym adapters), see:
+
+- `docs/RESEARCH_ENGINE_RUNBOOK.md`
+
+The runbook also documents a dedicated self-hosted GitHub Actions smoke workflow
+for real `dsbio` runs with guarded secrets and minimal trial budgets.
+
 #### Output Structure
 
 ```

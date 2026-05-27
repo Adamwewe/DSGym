@@ -17,6 +17,8 @@ from dsgym.optimization.interfaces import (
     ModeEvaluationRecord,
     ModeEvaluatorAdapter,
     QualityMetricAdapter,
+    ResearchContextAdapter,
+    TaskMutatorAdapter,
 )
 from dsgym.optimization.prompt_nsga2 import _compose_prompt_profile
 
@@ -406,7 +408,7 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
             "generation_model": config.generation_model,
             "generated_variants_per_type": config.generated_variants_per_type,
         },
-        key: [asdict(variant) for variant in variants] for key, variants in bank.items()
+        **{key: [asdict(variant) for variant in variants] for key, variants in bank.items()},
     }
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(serializable, f, indent=2, ensure_ascii=False)
@@ -602,6 +604,27 @@ class DefaultHarnessPolicyAdapter:
         return self._evaluator.summarize(results, max_turns=max_turns)
 
 
+class DefaultDSGymContextAdapter:
+    def prepare_context(self, config: ResearchOptimizationConfig):
+        return _prepare_task_bank(config)
+
+
+class DefaultTaskMutatorAdapter:
+    def mutate(
+        self,
+        base_tasks: List[Dict[str, Any]],
+        prompt_variant: TextVariant,
+        context_variant: TextVariant,
+        harness_variant: TextVariant,
+    ) -> List[Dict[str, Any]]:
+        return _mutate_tasks(
+            base_tasks=base_tasks,
+            prompt_variant=prompt_variant,
+            context_variant=context_variant,
+            harness_variant=harness_variant,
+        )
+
+
 def _trial_output_dir(base: Path, trial_number: int) -> Path:
     path = base / "trials" / f"trial_{trial_number:04d}"
     path.mkdir(parents=True, exist_ok=True)
@@ -720,6 +743,8 @@ class DefaultDSGymModeEvaluatorAdapter:
 def run_research_nsga2(
     config: ResearchOptimizationConfig,
     *,
+    context_adapter: Optional[ResearchContextAdapter] = None,
+    task_mutator_adapter: Optional[TaskMutatorAdapter] = None,
     mode_evaluator_adapter: Optional[ModeEvaluatorAdapter] = None,
     quality_adapter: Optional[QualityMetricAdapter] = None,
     harness_adapter: Optional[HarnessPolicyAdapter] = None,
@@ -735,7 +760,10 @@ def run_research_nsga2(
     out_dir = Path(config.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset, family, task_bank = _prepare_task_bank(config)
+    context_adapter_impl = context_adapter or DefaultDSGymContextAdapter()
+    task_mutator_impl = task_mutator_adapter or DefaultTaskMutatorAdapter()
+
+    dataset, family, task_bank = context_adapter_impl.prepare_context(config)
     variant_bank = _build_variant_bank(config, family, out_dir)
 
     storage = f"sqlite:///{(out_dir / 'optuna_study.db').as_posix()}"
@@ -817,7 +845,7 @@ def run_research_nsga2(
             for mode in modes:
                 base_tasks = task_bank[mode]
                 mode_tag = "dags" if mode else "nodags"
-                trial_tasks = _mutate_tasks(
+                trial_tasks = task_mutator_impl.mutate(
                     base_tasks=base_tasks,
                     prompt_variant=prompt_variant,
                     context_variant=context_variant,
@@ -962,6 +990,8 @@ def run_research_nsga2(
         "reuse_variant_bank_cache": config.reuse_variant_bank_cache,
         "force_regenerate_variants": config.force_regenerate_variants,
         "mode_evaluator_adapter": type(mode_evaluator).__name__,
+        "context_adapter": type(context_adapter_impl).__name__,
+        "task_mutator_adapter": type(task_mutator_impl).__name__,
         "quality_adapter": type(quality_adapter_impl).__name__,
         "harness_adapter": type(harness_adapter_impl).__name__,
         "n_trials": config.n_trials,

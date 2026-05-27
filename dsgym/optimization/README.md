@@ -127,6 +127,9 @@ Optimization uses an environment-driven prompt profile override (`DSGYM_DAG_PROM
 
 ## Research Optimization Engine (Prompt + Context + Harness + DAG Ablation)
 
+For a full operational playbook that builds directly on DSGym README commands,
+see `docs/RESEARCH_ENGINE_RUNBOOK.md`.
+
 To support broader 2026-style research workflows, DSGym also provides a research optimizer that:
 
 - evolves prompt/context/harness directives (not only static DAG profile fields)
@@ -231,6 +234,34 @@ The HTML dashboard includes:
 - interactive Pareto table filters by run/model
 - full trial table for auditability
 
+## Real DSGym DSBio Smoke Workflow (Self-Hosted)
+
+In addition to the synthetic CI workflow, a real-dataset smoke workflow is available for
+self-hosted runners:
+
+- `.github/workflows/research-optimization-dsbio-smoke-self-hosted.yml`
+
+Design goals:
+
+- guarded secret usage via protected workflow environment (`dsgym-smoke`)
+- manual trigger only (`workflow_dispatch`) to prevent accidental API spend
+- bounded default budget (`limit=3`, `trials=6`, `population_size=4`, `max_workers=1`)
+- objective/invariant validation after the run
+
+The workflow requires at least one provider secret in the environment:
+
+- `OPENAI_API_KEY` or
+- `TOGETHER_API_KEY` or
+- `ANTHROPIC_API_KEY`
+
+What it runs:
+
+1. `examples/optimize_research_engine.py` on real `dsbio` tasks with DAG ablation enabled
+2. `examples/analyze_research_optimization.py`
+3. `examples/build_research_dashboard.py`
+4. JSON invariant checks for objective direction wiring, per-mode DAG/noDAG records, and recomputed objective means/delta from raw mode outputs
+5. artifact upload under `optimization_results/dsbio_smoke`
+
 ## CI Regression Gate
 
 Use a CI-friendly pass/fail comparator between candidate and baseline runs:
@@ -257,6 +288,25 @@ Artifacts:
 
 - `regression_report.json`
 - `regression_report.md`
+
+## Bootstrap Significance Testing
+
+Strengthen research claims with bootstrap confidence intervals for metric deltas:
+
+```bash
+uv run python examples/bootstrap_research_significance.py \
+  --baseline-dir ./optimization_results/research_baseline \
+  --candidate-dir ./optimization_results/research_candidate \
+  --selector top-balanced \
+  --top-k 10 \
+  --n-bootstrap 5000 \
+  --confidence 0.95
+```
+
+Outputs:
+
+- `bootstrap_significance.json`
+- `bootstrap_significance.md`
 
 ## Strict Harness Evaluator
 
@@ -323,3 +373,24 @@ summary = run_research_nsga2(
   harness_adapter=DefaultHarnessPolicyAdapter(cfg),
 )
 ```
+
+## Non-DSGym Adapter Demo
+
+An end-to-end external-framework simulation is available at:
+
+- `examples/non_dsgym_adapter_demo.py`
+
+Run baseline and candidate synthetic studies:
+
+```bash
+uv run python examples/non_dsgym_adapter_demo.py \
+  --scenario baseline \
+  --output-dir ./optimization_results/non_dsgym_baseline
+
+uv run python examples/non_dsgym_adapter_demo.py \
+  --scenario candidate \
+  --output-dir ./optimization_results/non_dsgym_candidate
+```
+
+These outputs can be consumed by the same regression, significance, visualization,
+and dashboard tools used for DSGym-native runs.

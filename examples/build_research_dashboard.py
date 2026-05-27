@@ -99,13 +99,13 @@ def _plot_quality_time(df: pd.DataFrame) -> str:
 def _plot_accuracy_compliance(df: pd.DataFrame) -> str:
     fig, ax = plt.subplots(figsize=(9, 5))
     for run_label, group in df.groupby("run_label"):
-    eval_group = group[group["exact_match_accuracy"].notna()]
-    if eval_group.empty:
-      continue
-    sizes = 40 + 120 * eval_group["mean_quality"].clip(lower=0.0)
+        eval_group = group[group["exact_match_accuracy"].notna()]
+        if eval_group.empty:
+            continue
+        sizes = 40 + 120 * eval_group["mean_quality"].clip(lower=0.0)
         ax.scatter(
-      eval_group["exact_match_accuracy"],
-      eval_group["mean_compliance"],
+            eval_group["exact_match_accuracy"],
+            eval_group["mean_compliance"],
             s=sizes,
             alpha=0.65,
             label=run_label,
@@ -116,7 +116,7 @@ def _plot_accuracy_compliance(df: pd.DataFrame) -> str:
     ax.set_title("Accuracy vs Harness Compliance (bubble size = quality)")
     ax.grid(alpha=0.25)
     if ax.has_data():
-      ax.legend()
+        ax.legend()
     return _fig_to_base64(fig)
 
 

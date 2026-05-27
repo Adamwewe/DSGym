@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -37,7 +38,9 @@ def analyze(input_dir: Path) -> Dict[str, Any]:
         "mean_turns": _mean([r.mean_turns for r in records]),
         "mean_compliance": _mean([r.mean_compliance for r in records]),
         "mean_dag_help_delta": _mean([r.dag_help_delta for r in records]),
-        "mean_exact_match_accuracy": _mean([r.exact_match_accuracy for r in records]),
+        "mean_exact_match_accuracy": _mean(
+            [r.exact_match_accuracy for r in records if math.isfinite(r.exact_match_accuracy)]
+        ),
         "dag_effect": _classify_dag_effect(_mean([r.dag_help_delta for r in records])),
     }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -46,7 +47,7 @@ def _select_points(points: List[ResearchTrialPoint], selector: str, top_k: int) 
         key=lambda p: (
             p.mean_quality,
             p.mean_compliance,
-            p.exact_match_accuracy,
+            p.exact_match_accuracy if math.isfinite(p.exact_match_accuracy) else -1.0,
             -p.mean_time,
             -p.mean_turns,
             p.dag_help_delta,
@@ -69,7 +70,7 @@ def _aggregate(points: List[ResearchTrialPoint]) -> AggregateMetrics:
             mean_dag_help_delta=0.0,
         )
 
-    exact_values = [p.exact_match_accuracy for p in points if p.exact_match_accuracy is not None]
+    exact_values = [p.exact_match_accuracy for p in points if math.isfinite(p.exact_match_accuracy)]
 
     return AggregateMetrics(
         trials=len(points),
@@ -101,7 +102,7 @@ def _render_markdown(report: Dict[str, Any]) -> str:
     for side in ("baseline", "candidate"):
         row = report[side]
         exact_acc = row["mean_exact_match_accuracy"]
-        exact_text = "n/a" if exact_acc is None else f"{exact_acc:.4f}"
+        exact_text = "n/a" if (exact_acc is None or not math.isfinite(float(exact_acc))) else f"{exact_acc:.4f}"
         lines.append(
             "| {side} | {trials} | {quality:.4f} | {success:.4f} | {exact_acc} | {compliance:.4f} | {time:.2f} | {turns:.2f} | {dag:+.4f} |".format(
                 side=side,
@@ -199,7 +200,12 @@ def main() -> int:
         "turns": candidate.mean_turns - baseline.mean_turns,
         "exact_match_accuracy": (
             None
-            if (baseline.mean_exact_match_accuracy is None or candidate.mean_exact_match_accuracy is None)
+            if (
+                baseline.mean_exact_match_accuracy is None
+                or candidate.mean_exact_match_accuracy is None
+                or not math.isfinite(float(baseline.mean_exact_match_accuracy))
+                or not math.isfinite(float(candidate.mean_exact_match_accuracy))
+            )
             else candidate.mean_exact_match_accuracy - baseline.mean_exact_match_accuracy
         ),
         "dag_help_delta": candidate.mean_dag_help_delta - baseline.mean_dag_help_delta,

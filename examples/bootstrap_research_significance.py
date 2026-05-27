@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -29,7 +30,7 @@ def _select_points(points: List[ResearchTrialPoint], selector: str, top_k: int) 
         key=lambda p: (
             p.mean_quality,
             p.mean_compliance,
-            p.exact_match_accuracy,
+            p.exact_match_accuracy if math.isfinite(p.exact_match_accuracy) else -1.0,
             -p.mean_time,
             -p.mean_turns,
             p.dag_help_delta,
@@ -45,7 +46,10 @@ def _metric_vectors(points: List[ResearchTrialPoint], field: str) -> List[float]
         value = getattr(point, field)
         if value is None:
             continue
-        values.append(float(value))
+        value_f = float(value)
+        if not math.isfinite(value_f):
+            continue
+        values.append(value_f)
     return values
 
 

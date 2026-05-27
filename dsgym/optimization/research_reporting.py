@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
@@ -49,6 +50,16 @@ def _mean(values: Sequence[float]) -> float:
     if not values:
         return 0.0
     return sum(values) / len(values)
+
+
+def _mean_or_nan(values: Sequence[float]) -> float:
+    if not values:
+        return float("nan")
+    return sum(values) / len(values)
+
+
+def _finite(values: Sequence[float]) -> List[float]:
+    return [float(v) for v in values if isinstance(v, (int, float)) and math.isfinite(float(v))]
 
 
 def load_research_trial_points(input_dirs: List[Path]) -> List[ResearchTrialPoint]:
@@ -120,9 +131,12 @@ def load_research_trial_points(input_dirs: List[Path]) -> List[ResearchTrialPoin
                 mean_turns=_safe_float(objectives.get("mean_turns", _mean(turn_values))),
                 mean_compliance=_safe_float(objectives.get("mean_harness_compliance", _mean(compliance_values))),
                 dag_help_delta=_safe_float(objectives.get("dag_help_delta", 0.0)),
-                exact_match_accuracy=_mean(accuracy_values),
-                exact_match_correct=_mean(correct_values),
-                total_samples=_mean(total_sample_values),
+                exact_match_accuracy=_safe_float(
+                    objectives.get("mean_exact_match_accuracy", _mean_or_nan(accuracy_values)),
+                    float("nan"),
+                ),
+                exact_match_correct=_mean_or_nan(correct_values),
+                total_samples=_mean_or_nan(total_sample_values),
             )
             points.append(point)
 
@@ -146,9 +160,9 @@ def group_stats(points: List[ResearchTrialPoint], field: str) -> Dict[str, Dict[
             "mean_turns": _mean([p.mean_turns for p in group]),
             "mean_compliance": _mean([p.mean_compliance for p in group]),
             "mean_dag_help_delta": _mean([p.dag_help_delta for p in group]),
-            "mean_exact_match_accuracy": _mean([p.exact_match_accuracy for p in group]),
-            "mean_exact_match_correct": _mean([p.exact_match_correct for p in group]),
-            "mean_total_samples": _mean([p.total_samples for p in group]),
+            "mean_exact_match_accuracy": _mean_or_nan(_finite([p.exact_match_accuracy for p in group])),
+            "mean_exact_match_correct": _mean_or_nan(_finite([p.exact_match_correct for p in group])),
+            "mean_total_samples": _mean_or_nan(_finite([p.total_samples for p in group])),
         }
     return stats
 

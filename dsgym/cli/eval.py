@@ -54,6 +54,10 @@ def add_eval_parser(subparsers):
                             "The saved file can be reused via --dataset dsbio-sampled / dspredict-sampled.")
     parser.add_argument("--sample-seed", type=int, default=42,
                        help="Random seed for --sample-n (default: 42)")
+    parser.add_argument("--dag-validation-mode", "--dag_type", type=str, default="default",
+                       choices=["default", "relaxed", "strict"],
+                       help="DAG validation mode for generation: default|relaxed|strict. "
+                            "Default preserves current behavior.")
     parser.add_argument("--synthetic-path", type=str, default=None,
                        help="Path to synthetic dataset (optional)")
     
@@ -72,6 +76,9 @@ def add_eval_parser(subparsers):
                        help="Code sandbox manager URL")
     parser.add_argument("--max-workers", type=int, default=None,
                        help="Maximum number of parallel workers (auto-set based on backend if not provided)")
+    parser.add_argument("--allocation-timeout", type=float, default=None,
+                       help="Timeout in seconds for container allocation requests. "
+                            "If omitted, dsbio defaults to 120s; other datasets block until available.")
     
     # API keys
     parser.add_argument("--api-key", type=str, default=None,
@@ -94,191 +101,210 @@ def run_eval(args) -> int:
         mode = "iterative DAG" if args.dags else "standard (no DAG)"
         print(f"System prompt mode: {mode}")
 
-    # Set default max_workers based on backend
+    # Set default max_workers based on backend/provider
     if args.max_workers is None:
         if args.backend == "litellm":
-            args.max_workers = 24
+            model_lower = args.model.lower()
+            if model_lower.startswith("claude-") or model_lower.startswith("anthropic/"):
+                args.max_workers = 4
+            elif model_lower.startswith("together_ai/"):
+                args.max_workers = 8
+            else:
+                args.max_workers = 24
         else:  # vllm or sglang
             args.max_workers = 1
 
     print(f"Max workers: {args.max_workers}")
+    print(f"DAG validation mode: {args.dag_validation_mode}")
     print("-" * 50)
 
-    # Create output directory
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    # Initialize agent
-    print("🤖 Initializing agent...")
-    agent_config = {
-        "manager_url": args.manager_url,
-        "max_turns": args.max_turns,
-        "temperature": args.temperature,
-        "output_dir": args.output_dir,
-    }
-
-    # DSBio requires no GPU workloads, so skip Apple Silicon / Darwin platform
-    # detection and let the manager allocate any available container.
-    if is_dsbio:
-        agent_config["container_type"] = None
-
-    if args.backend == "litellm" and args.api_key:
-        agent_config["api_key"] = args.api_key
-
+    old_dag_validation_mode = os.environ.get("DSGYM_DAG_VALIDATION_MODE")
+    os.environ["DSGYM_DAG_VALIDATION_MODE"] = args.dag_validation_mode
     try:
-        if "dspredict" in args.dataset:
-            agent = DSPredictReActAgent(
-                backend=args.backend,
-                model=args.model,
-                submission_dir="./submissions",
-                **agent_config
-            )
-        else:
-            agent = ReActDSAgent(
-                backend=args.backend,
-                model=args.model,
-                **agent_config
-            )
-        print("✅ Agent initialized successfully")
-    except Exception as e:
-        print(f"❌ Failed to initialize agent: {e}")
-        return 1
+        # Create output directory
+        os.makedirs(args.output_dir, exist_ok=True)
 
-    # Load dataset
-    print(f"📊 Loading {args.dataset} dataset...")
-    try:
-        dataset_config = {}
-        if args.synthetic_path:
-            dataset_config["synthetic_path"] = args.synthetic_path
+        # Initialize agent
+        print("🤖 Initializing agent...")
+        agent_config = {
+            "manager_url": args.manager_url,
+            "max_turns": args.max_turns,
+            "temperature": args.temperature,
+            "output_dir": args.output_dir,
+        }
 
-        load_config = {"limit": args.limit}
-        dataset_name = args.dataset
+        # DSBio requires no GPU workloads, so skip Apple Silicon / Darwin platform
+        # detection and let the manager allocate any available container.
+        if is_dsbio:
+            agent_config["container_type"] = None
+            # Fast-fail instead of waiting indefinitely for a container in dsbio runs.
+            # This prevents apparent hangs when manager/container state is unhealthy.
+            agent_config["allocation_timeout"] = 120.0 if args.allocation_timeout is None else args.allocation_timeout
+        elif args.allocation_timeout is not None:
+            agent_config["allocation_timeout"] = args.allocation_timeout
 
-        if "dspredict" in dataset_name:
-            # Parse split: dspredict-easy → "easy", dspredict-sampled → "sampled"
-            split = dataset_name.split("-", 1)[-1]  # "easy", "hard", "sampled", …
-            dataset_config["virtual_data_root"] = "/data"
-            load_config["split"] = split
-            load_config["generate_dags"] = args.dags
-            dataset_name = "dspredict"
-            dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+        if args.backend == "litellm" and args.api_key:
+            agent_config["api_key"] = args.api_key
 
-            # --sample-n: create dspredict_sampled.json from the specified split, then evaluate on it
-            if args.sample_n is not None:
-                source_split = split if split != "sampled" else "hard"
-                dataset.create_sample(n=args.sample_n, split=source_split, seed=args.sample_seed)
-                load_config["split"] = "sampled"
-
-        elif dataset_name in ("dsbio", "dsbio-sampled"):
-            dataset_config["virtual_data_root"] = "/data"
-            dataset_name = "dsbio"
-
-            # --sample-n: create dsbio_sampled.json from the hard split, then evaluate on it
-            if args.sample_n is not None:
-                _dataset = DatasetRegistry.load(dataset_name, **dataset_config)
-                _dataset.create_sample(n=args.sample_n, seed=args.sample_seed)
-                dataset = _dataset
-                load_config["split"] = "sampled"
+        try:
+            if "dspredict" in args.dataset:
+                agent = DSPredictReActAgent(
+                    backend=args.backend,
+                    model=args.model,
+                    submission_dir="./submissions",
+                    **agent_config
+                )
             else:
+                agent = ReActDSAgent(
+                    backend=args.backend,
+                    model=args.model,
+                    **agent_config
+                )
+            print("✅ Agent initialized successfully")
+        except Exception as e:
+            print(f"❌ Failed to initialize agent: {e}")
+            return 1
+
+        # Load dataset
+        print(f"📊 Loading {args.dataset} dataset...")
+        try:
+            dataset_config = {}
+            if args.synthetic_path:
+                dataset_config["synthetic_path"] = args.synthetic_path
+
+            load_config = {"limit": args.limit}
+            dataset_name = args.dataset
+
+            if "dspredict" in dataset_name:
+                # Parse split: dspredict-easy → "easy", dspredict-sampled → "sampled"
+                split = dataset_name.split("-", 1)[-1]  # "easy", "hard", "sampled", …
+                dataset_config["virtual_data_root"] = "/data"
+                load_config["split"] = split
+                load_config["generate_dags"] = args.dags
+                dataset_name = "dspredict"
                 dataset = DatasetRegistry.load(dataset_name, **dataset_config)
-                if args.dataset == "dsbio-sampled":
+
+                # --sample-n: create dspredict_sampled.json from the specified split, then evaluate on it
+                if args.sample_n is not None:
+                    source_split = split if split != "sampled" else "hard"
+                    dataset.create_sample(n=args.sample_n, split=source_split, seed=args.sample_seed)
                     load_config["split"] = "sampled"
 
-            load_config["generate_dags"] = args.dags
+            elif dataset_name in ("dsbio", "dsbio-sampled"):
+                dataset_config["virtual_data_root"] = "/data"
+                dataset_name = "dsbio"
 
-        else:
-            dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+                # --sample-n: create dsbio_sampled.json from the hard split, then evaluate on it
+                if args.sample_n is not None:
+                    _dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+                    _dataset.create_sample(n=args.sample_n, seed=args.sample_seed)
+                    dataset = _dataset
+                    load_config["split"] = "sampled"
+                else:
+                    dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+                    if args.dataset == "dsbio-sampled":
+                        load_config["split"] = "sampled"
 
-        samples = dataset.load(**load_config)
-        print(f"✅ Loaded {len(samples)} samples from {args.dataset}")
+                load_config["generate_dags"] = args.dags
 
-    except Exception as e:
-        print(f"❌ Failed to load dataset: {e}")
-        return 1
+            else:
+                dataset = DatasetRegistry.load(dataset_name, **dataset_config)
 
-    # Create evaluator with dataset-specific metrics
-    print("⚖️ Setting up evaluator...")
-    evaluator = Evaluator(
-        protocol="multi_turn",
-        dataset=dataset,
-        parallel_workers=args.max_workers
-    )
+            samples = dataset.load(**load_config)
+            print(f"✅ Loaded {len(samples)} samples from {args.dataset}")
 
-    # Create evaluation config
-    run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
-    if (is_dsbio or is_dspredict) and not args.run_name:
-        run_name += "_dags" if args.dags else "_nodags"
-    config = EvaluationConfig(
-        model_name=args.model,
-        backend_type=args.backend,
-        dataset_name=args.dataset,
-        output_dir=args.output_dir,
-        run_name=run_name,
-        max_turns=args.max_turns,
-        temperature=args.temperature,
-        max_workers=args.max_workers,
-        extra_config={"generate_dags": args.dags} if is_dsbio or is_dspredict else {}
-    )
-    
-    # Run evaluation
-    print("🏃 Starting evaluation...")
-    try:
-        results = evaluator.evaluate(
-            agent=agent,
-            tasks=samples,
-            config=config,
-            save_results=True
+        except Exception as e:
+            print(f"❌ Failed to load dataset: {e}")
+            return 1
+
+        # Create evaluator with dataset-specific metrics
+        print("⚖️ Setting up evaluator...")
+        evaluator = Evaluator(
+            protocol="multi_turn",
+            dataset=dataset,
+            parallel_workers=args.max_workers
         )
-        
-        print("✅ Evaluation completed!")
-        print(f"📁 Results saved to: {args.output_dir}")
-        
-        # Print summary statistics
-        if "metrics" in results:
-            print("\n📈 Results Summary:")
-            print("-" * 30)
-            metrics = results["metrics"]
-            
-            # Show key metrics
-            key_metrics = [
-                "success_rate", "total_samples", "successful_samples", 
-                "average_execution_time", "average_turns"
-            ]
-            
-            for metric_name in key_metrics:
-                if metric_name in metrics:
-                    value = metrics[metric_name]
-                    if isinstance(value, float):
-                        print(f"{metric_name}: {value:.3f}")
-                    else:
-                        print(f"{metric_name}: {value}")
-            
-            # Show dataset-specific metrics
-            metric_scores = {}
-            for key, value in metrics.items():
-                if key.endswith("_mean") and not key.startswith("error"):
-                    metric_name = key.replace("_mean", "")
-                    metric_scores[metric_name] = value
-            
-            if metric_scores:
-                print("\n📊 Dataset Metrics:")
-                print("-" * 20)
-                for metric_name, score in metric_scores.items():
-                    print(f"{metric_name}: {score:.3f}")
-        if is_dspredict:
-            dataset.print_dspredict_results_overview(results["results"])
-        
-        return 0
-        
-    except Exception as e:
-        print(f"❌ Evaluation failed: {e}")
-        import traceback
-        print("Traceback:")
-        traceback.print_exc()
-        return 1
+
+        # Create evaluation config
+        run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
+        if (is_dsbio or is_dspredict) and not args.run_name:
+            run_name += "_dags" if args.dags else "_nodags"
+        config = EvaluationConfig(
+            model_name=args.model,
+            backend_type=args.backend,
+            dataset_name=args.dataset,
+            output_dir=args.output_dir,
+            run_name=run_name,
+            max_turns=args.max_turns,
+            temperature=args.temperature,
+            max_workers=args.max_workers,
+            extra_config={"generate_dags": args.dags} if is_dsbio or is_dspredict else {}
+        )
+
+        # Run evaluation
+        print("🏃 Starting evaluation...")
+        try:
+            results = evaluator.evaluate(
+                agent=agent,
+                tasks=samples,
+                config=config,
+                save_results=True
+            )
+
+            print("✅ Evaluation completed!")
+            print(f"📁 Results saved to: {args.output_dir}")
+
+            # Print summary statistics
+            if "metrics" in results:
+                print("\n📈 Results Summary:")
+                print("-" * 30)
+                metrics = results["metrics"]
+
+                # Show key metrics
+                key_metrics = [
+                    "success_rate", "total_samples", "successful_samples",
+                    "average_execution_time", "average_turns"
+                ]
+
+                for metric_name in key_metrics:
+                    if metric_name in metrics:
+                        value = metrics[metric_name]
+                        if isinstance(value, float):
+                            print(f"{metric_name}: {value:.3f}")
+                        else:
+                            print(f"{metric_name}: {value}")
+
+                # Show dataset-specific metrics
+                metric_scores = {}
+                for key, value in metrics.items():
+                    if key.endswith("_mean") and not key.startswith("error"):
+                        metric_name = key.replace("_mean", "")
+                        metric_scores[metric_name] = value
+
+                if metric_scores:
+                    print("\n📊 Dataset Metrics:")
+                    print("-" * 20)
+                    for metric_name, score in metric_scores.items():
+                        print(f"{metric_name}: {score:.3f}")
+            if is_dspredict:
+                dataset.print_dspredict_results_overview(results["results"])
+
+            return 0
+
+        except Exception as e:
+            print(f"❌ Evaluation failed: {e}")
+            import traceback
+            print("Traceback:")
+            traceback.print_exc()
+            return 1
+    finally:
+        if old_dag_validation_mode is None:
+            os.environ.pop("DSGYM_DAG_VALIDATION_MODE", None)
+        else:
+            os.environ["DSGYM_DAG_VALIDATION_MODE"] = old_dag_validation_mode
 
 
 if __name__ == "__main__":
-    # For standalone testing
     parser = argparse.ArgumentParser(description="DSGym evaluation")
     add_eval_parser(parser._subparsers_action.add_parser if hasattr(parser, '_subparsers_action') else parser.add_subparsers())
     args = parser.parse_args()

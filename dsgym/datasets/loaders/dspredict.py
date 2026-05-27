@@ -287,6 +287,7 @@ class DSPredictDataset(BaseDataset):
         dag_type: str = "reasoning",
         reasoning_dag=None,
         model: str = "gpt-4o",
+        dag_validation_mode: Optional[str] = None,
     ):
         """
         Generate a reasoning or implementation DAG for a single DSPredict sample.
@@ -301,10 +302,8 @@ class DSPredictDataset(BaseDataset):
         Returns:
             A validated ReasoningDAG or ImplementationDAG.
         """
-        from dsgym.datasets.dag_generator import (
-            generate_implementation_dag,
-            generate_reasoning_dag,
-        )
+        from dsgym.datasets.dag import validate_implementation_dag, validate_reasoning_dag
+        from dsgym.datasets.dag_generator import resolve_dag_validation_mode
         from dsgym.datasets.prompts.dag_prompts import (
             build_reasoning_prompt_dspredict,
             build_implementation_prompt_dspredict,
@@ -339,12 +338,15 @@ class DSPredictDataset(BaseDataset):
                 raise RuntimeError("Empty response from model")
             return _extract_json(raw)
 
+        mode = (dag_validation_mode or resolve_dag_validation_mode("dspredict")).strip().lower()
+
         if dag_type == "reasoning":
             from dsgym.datasets.dag import ReasoningDAG
-            from dsgym.datasets.dag_generator import _extract_json
             sys_p, usr_p = build_reasoning_prompt_dspredict(challenge_name, description)
             raw_json = _call(sys_p, usr_p)
-            return ReasoningDAG.model_validate_json(raw_json)
+            reasoning = ReasoningDAG.model_validate_json(raw_json)
+            validate_reasoning_dag(reasoning, mode=mode)
+            return reasoning
 
         if dag_type == "implementation":
             if reasoning_dag is None:
@@ -354,14 +356,15 @@ class DSPredictDataset(BaseDataset):
                 )
             from dsgym.datasets.dag import ImplementationDAG, ReasoningDAG
             import json as _json
-            reasoning_dict = (
-                _json.loads(reasoning_dag.model_dump_json())
-                if isinstance(reasoning_dag, ReasoningDAG)
-                else reasoning_dag
+            typed_reasoning_dag = (
+                reasoning_dag if isinstance(reasoning_dag, ReasoningDAG) else ReasoningDAG.model_validate(reasoning_dag)
             )
+            reasoning_dict = _json.loads(typed_reasoning_dag.model_dump_json())
             sys_p, usr_p = build_implementation_prompt_dspredict(challenge_name, description, reasoning_dict)
             raw_json = _call(sys_p, usr_p)
-            return ImplementationDAG.model_validate_json(raw_json)
+            implementation = ImplementationDAG.model_validate_json(raw_json)
+            validate_implementation_dag(implementation, reasoning_dag=typed_reasoning_dag, mode=mode)
+            return implementation
 
         raise ValueError(f"Unknown dag_type '{dag_type}'. Choose 'reasoning' or 'implementation'.")
 
@@ -369,6 +372,7 @@ class DSPredictDataset(BaseDataset):
         self,
         sample: Dict[str, Any],
         model: str = "gpt-4o",
+        dag_validation_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Convenience method: generate both reasoning and implementation DAGs
@@ -382,9 +386,18 @@ class DSPredictDataset(BaseDataset):
             Dict with keys ``"reasoning"`` (ReasoningDAG) and
             ``"implementation"`` (ImplementationDAG).
         """
-        reasoning = self.generate_dag(sample, dag_type="reasoning", model=model)
+        reasoning = self.generate_dag(
+            sample,
+            dag_type="reasoning",
+            model=model,
+            dag_validation_mode=dag_validation_mode,
+        )
         implementation = self.generate_dag(
-            sample, dag_type="implementation", reasoning_dag=reasoning, model=model
+            sample,
+            dag_type="implementation",
+            reasoning_dag=reasoning,
+            model=model,
+            dag_validation_mode=dag_validation_mode,
         )
         return {"reasoning": reasoning, "implementation": implementation}
 

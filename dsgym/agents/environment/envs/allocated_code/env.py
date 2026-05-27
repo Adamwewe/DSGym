@@ -270,7 +270,7 @@ class AllocatedCodeEnv(BaseTextEnv):
     def close(self):
         """Clean up environment resources."""
         try:
-            self.tool_group.deallocate_container()
+            self.tool_group.close()
         except Exception as e:
             print(f"⚠️ Warning: Failed to deallocate container: {e}")
     
@@ -414,9 +414,20 @@ class AllocatedCodeToolGroup:
     def deallocate_container(self):
         if self.allocated_container is None:
             return
-        
-        self.client.post(f"{self.manager_url}/deallocate/{self.allocated_container}")
+
+        response = self.client.post(f"{self.manager_url}/deallocate/{self.allocated_container}")
+        response.raise_for_status()
         self.allocated_container = None
+
+    def close(self):
+        """Release remote allocation and close the underlying HTTP client."""
+        try:
+            self.deallocate_container()
+        finally:
+            try:
+                self.client.close()
+            except Exception:
+                pass
     
     def execute_code(self, code: str) -> str:
         if self.allocated_container is None:

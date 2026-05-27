@@ -403,26 +403,29 @@ class TrajectoryGenerator:
         predictions_dir.mkdir(exist_ok=True)
         
         all_predictions_file = predictions_dir / f"{run_name}_all.json"
-        all_trajectory_data = []
-        for traj in results["trajectories"]:
-            traj_dict = {
-                "sample_id": traj.sample_id,
-                "trajectory_id": getattr(traj, "trajectory_id", 0),
-                "dataset_name": traj.dataset_name,
-                "query": traj.query,
-                "prediction": traj.prediction,
-                "ground_truth": traj.ground_truth,
-                "success": traj.success,
-                "metrics": traj.metrics if hasattr(traj, "metrics") else {},
-                "error_info": traj.error_info if hasattr(traj, "error_info") else None,
-                "execution_time": getattr(traj, "execution_time", None),
-                "num_turns": getattr(traj, "num_turns", None),
-                "conversation": getattr(traj, "conversation", [])
-            }
-            all_trajectory_data.append(traj_dict)
-        
         with open(all_predictions_file, "w", encoding="utf-8") as f:
-            json.dump(all_trajectory_data, f, indent=2, ensure_ascii=False)
+            f.write("[\n")
+            first = True
+            for traj in results["trajectories"]:
+                traj_dict = {
+                    "sample_id": traj.sample_id,
+                    "trajectory_id": getattr(traj, "trajectory_id", 0),
+                    "dataset_name": traj.dataset_name,
+                    "query": traj.query,
+                    "prediction": traj.prediction,
+                    "ground_truth": traj.ground_truth,
+                    "success": traj.success,
+                    "metrics": traj.metrics if hasattr(traj, "metrics") else {},
+                    "error_info": traj.error_info if hasattr(traj, "error_info") else None,
+                    "execution_time": getattr(traj, "execution_time", None),
+                    "num_turns": getattr(traj, "num_turns", None),
+                    "conversation": getattr(traj, "conversation", [])
+                }
+                if not first:
+                    f.write(",\n")
+                json.dump(traj_dict, f, ensure_ascii=False)
+                first = False
+            f.write("\n]")
         
         # Save metrics results (both pass@k and average)
         metrics_file = Path(self.config.output_dir) / "metrics" / f"{run_name}.json"

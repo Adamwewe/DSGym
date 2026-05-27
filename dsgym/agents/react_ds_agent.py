@@ -81,6 +81,7 @@ class ReActDSAgent(BaseAgent):
             total_tokens = 0
             final_answer = ""
             actual_turns = 0
+            trajectory: List[Dict[str, Any]] = []
             
             for turn in range(self.max_turns):
                 try:
@@ -91,13 +92,35 @@ class ReActDSAgent(BaseAgent):
                     total_tokens += len(response.split())
                     
                     # Step environment
+                    step_start = time.time()
                     step_output = env.step(response)
+                    step_time = time.time() - step_start
                     actual_turns = turn + 1
                     
                     # Update conversation - add assistant response and new observations
                     conversation.append({"role": "assistant", "content": step_output.get('postprocessed_action', response)})
+                    trajectory.append(
+                        {
+                            "turn": turn,
+                            "role": "assistant",
+                            "content": response,
+                            "done": step_output.get("done", False),
+                            "reward": step_output.get("reward", 0.0),
+                            "step_time": step_time,
+                        }
+                    )
                     if step_output['observations']:
                         conversation.extend(step_output['observations'])
+                        trajectory.append(
+                            {
+                                "turn": turn,
+                                "role": "user",
+                                "content": step_output['observations'][0].get("content", ""),
+                                "done": step_output.get("done", False),
+                                "reward": step_output.get("reward", 0.0),
+                                "step_time": step_time,
+                            }
+                        )
                     else:
                         print(f"Step output: {step_output}")
                     # Check if task is complete
@@ -111,6 +134,16 @@ class ReActDSAgent(BaseAgent):
                     
                     # Add error to conversation for recovery
                     conversation.append({"role": "user", "content": f"Error: {error_msg}. Please try a different approach."})
+                    trajectory.append(
+                        {
+                            "turn": turn,
+                            "role": "user",
+                            "content": error_msg,
+                            "done": False,
+                            "reward": 0.0,
+                            "step_time": 0.0,
+                        }
+                    )
                     continue
             
 
@@ -134,6 +167,7 @@ class ReActDSAgent(BaseAgent):
                     'conversation_length': len(conversation)
                 },
                 'conversation': conversation,
+                'trajectory': trajectory,
                 'raw_result': {
                     'prediction': final_answer,
                     'turns': actual_turns,
@@ -158,6 +192,7 @@ class ReActDSAgent(BaseAgent):
                     'error_trace': error_trace
                 },
                 'conversation': [],
+                'trajectory': [],
                 'raw_result': None
             }
         finally:

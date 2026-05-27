@@ -11,6 +11,18 @@ from dsgym.datasets.config import REPO_ROOT
 class KaggleScraper:
     def __init__(self):
         self.session = requests.Session()
+
+    def close(self):
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
     
     def scrape_overview_and_description(self, competition_url: str) -> tuple[str, str]:
         try:
@@ -37,6 +49,18 @@ class KaggleChallengeDownloader:
         self.scraper = KaggleScraper()
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(exist_ok=True)
+
+    def close(self):
+        try:
+            self.scraper.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
         
     def extract_competition_name(self, challenge_input: str) -> str:
         if challenge_input.startswith("https://www.kaggle.com/competitions/"):
@@ -151,41 +175,44 @@ class KaggleChallengeDownloader:
         print(f"Download directory: {self.download_dir.absolute()}")
         print("-" * 50)
         
-        for i, challenge in enumerate(challenge_list, 1):
-            print(f"[{i}/{len(challenge_list)}] Processing: {challenge}")
-            
-            competition_name = self.extract_competition_name(challenge)
-            result = self.download_competition_data(competition_name)
-            results.append(result)
-            
-            if result["status"] in ["success", "partial_success"]:
-                successful_downloads += 1
-            else:
-                failed_downloads += 1
-            
-            print()
-        
-        summary = {
-            "total_challenges": len(challenge_list),
-            "successful_downloads": successful_downloads,
-            "failed_downloads": failed_downloads,
-            "results": results,
-            "download_directory": str(self.download_dir.absolute())
-        }
-        
-        summary_file = self.download_dir / "download_summary.json"
-        with open(summary_file, "w") as f:
-            json.dump(summary, f, indent=2)
-        
-        print("=" * 50)
-        print("DOWNLOAD SUMMARY")
-        print("=" * 50)
-        print(f"Total challenges: {summary['total_challenges']}")
-        print(f"Successful downloads: {summary['successful_downloads']}")
-        print(f"Failed downloads: {summary['failed_downloads']}")
-        print(f"Summary saved to: {summary_file}")
-        
-        return summary
+        try:
+            for i, challenge in enumerate(challenge_list, 1):
+                print(f"[{i}/{len(challenge_list)}] Processing: {challenge}")
+
+                competition_name = self.extract_competition_name(challenge)
+                result = self.download_competition_data(competition_name)
+                results.append(result)
+
+                if result["status"] in ["success", "partial_success"]:
+                    successful_downloads += 1
+                else:
+                    failed_downloads += 1
+
+                print()
+
+            summary = {
+                "total_challenges": len(challenge_list),
+                "successful_downloads": successful_downloads,
+                "failed_downloads": failed_downloads,
+                "results": results,
+                "download_directory": str(self.download_dir.absolute())
+            }
+
+            summary_file = self.download_dir / "download_summary.json"
+            with open(summary_file, "w") as f:
+                json.dump(summary, f, indent=2)
+
+            print("=" * 50)
+            print("DOWNLOAD SUMMARY")
+            print("=" * 50)
+            print(f"Total challenges: {summary['total_challenges']}")
+            print(f"Successful downloads: {summary['successful_downloads']}")
+            print(f"Failed downloads: {summary['failed_downloads']}")
+            print(f"Summary saved to: {summary_file}")
+
+            return summary
+        finally:
+            self.close()
 
 
 def download_from_file(file_path: str, download_dir: str = "./kaggle_challenges") -> dict:

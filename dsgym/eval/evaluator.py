@@ -304,27 +304,79 @@ class Evaluator:
                         self._save_intermediate_result(error_result, config)
         else:
             # Execute in parallel
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_workers) as executor:
-                futures = [
-                    executor.submit(evaluate_single, (i, task)) 
+            task_timeout_seconds: Optional[float] = None
+            if config is not None:
+                value = config.extra_config.get("task_timeout_seconds")
+                if value is not None:
+                    task_timeout_seconds = float(value)
+            if task_timeout_seconds is None:
+                env_timeout = os.getenv("DSGYM_TASK_TIMEOUT_SECONDS")
+                if env_timeout:
+                    task_timeout_seconds = float(env_timeout)
+            if task_timeout_seconds is not None and task_timeout_seconds <= 0:
+                task_timeout_seconds = None
+
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_workers)
+            progress = tqdm(total=len(tasks), desc="Evaluating (parallel)") if show_progress else None
+
+            try:
+                future_to_index = {
+                    executor.submit(evaluate_single, (i, task)): i
                     for i, task in enumerate(tasks)
-                ]
-                
-                # Collect results with progress bar
-                if show_progress:
-                    completed = tqdm(
-                        concurrent.futures.as_completed(futures), 
-                        total=len(futures),
-                        desc="Evaluating (parallel)"
+                }
+                future_started_at = {future: time.time() for future in future_to_index}
+                pending = set(future_to_index.keys())
+
+                while pending:
+                    done, pending = concurrent.futures.wait(
+                        pending,
+                        timeout=1.0,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
                     )
-                else:
-                    completed = concurrent.futures.as_completed(futures)
-                
-                for future in completed:
-                    index, result = future.result()
-                    results[index] = result
-                    if config:
-                        self._save_intermediate_result(result, config)
+
+                    for future in done:
+                        index, result = future.result()
+                        results[index] = result
+                        if config:
+                            self._save_intermediate_result(result, config)
+                        if progress is not None:
+                            progress.update(1)
+
+                    if task_timeout_seconds is None:
+                        continue
+
+                    now = time.time()
+                    timed_out_futures = [
+                        future for future in pending
+                        if now - future_started_at[future] > task_timeout_seconds
+                    ]
+
+                    for future in timed_out_futures:
+                        index = future_to_index[future]
+                        task_info = extract_sample_info(tasks[index])
+                        timeout_result = EvaluationResult(
+                            sample_id=f"error_{index}",
+                            dataset_name=task_info.get("dataset_name", "unknown"),
+                            query=task_info.get("query", ""),
+                            ground_truth=task_info.get("ground_truth"),
+                            success=False,
+                            error_info={
+                                "error_type": "TimeoutError",
+                                "error_message": f"Task timed out after {task_timeout_seconds} seconds",
+                                "error_category": "EVALUATION_TIMEOUT",
+                            },
+                        )
+                        results[index] = timeout_result
+                        if config:
+                            self._save_intermediate_result(timeout_result, config)
+                        pending.remove(future)
+                        future.cancel()
+                        if progress is not None:
+                            progress.update(1)
+            finally:
+                if progress is not None:
+                    progress.close()
+                executor.shutdown(wait=False, cancel_futures=True)
         
         return results
     

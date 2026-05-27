@@ -83,9 +83,22 @@ class LiteLLMBackend(BaseBackend):
         """Check if model is a reasoning model (o1, o3, o4, gpt-5 series)."""
         reasoning_model_prefixes = ["o1-", "o3-", "o4-", "gpt-5"]
         return any(model_name.startswith(prefix) for prefix in reasoning_model_prefixes)
+
+    def _normalize_api_key(self, key: Optional[str]) -> Optional[str]:
+        """Normalize API keys from env/CLI to avoid malformed auth headers."""
+        if key is None:
+            return None
+
+        normalized = key.strip().strip('"').strip("'")
+        if normalized.lower().startswith("bearer "):
+            normalized = normalized[7:].strip()
+
+        return normalized or None
     
     def _setup_litellm(self):
         """Setup LiteLLM configuration and API keys."""
+        self.api_key = self._normalize_api_key(self.api_key)
+
         # Set API key based on model provider
         if self.api_key:
             if self.model_name.startswith("together_ai/"):
@@ -99,15 +112,15 @@ class LiteLLMBackend(BaseBackend):
         else:
             # Check for required environment variables
             if self.model_name.startswith("together_ai/"):
-                self.api_key = os.environ.get("TOGETHER_API_KEY")
+                self.api_key = self._normalize_api_key(os.environ.get("TOGETHER_API_KEY"))
                 if not self.api_key:
                     raise ValueError("TOGETHER_API_KEY environment variable is required for Together AI models")
             elif self.model_name.startswith("gpt-") or self._is_reasoning_model(self.model_name):
-                self.api_key = os.environ.get("OPENAI_API_KEY")
+                self.api_key = self._normalize_api_key(os.environ.get("OPENAI_API_KEY"))
                 if not self.api_key:
                     raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI models")
             elif self.model_name.startswith("claude-") or self.model_name.startswith("anthropic/"):
-                self.api_key = os.environ.get("ANTHROPIC_API_KEY")
+                self.api_key = self._normalize_api_key(os.environ.get("ANTHROPIC_API_KEY"))
                 if not self.api_key:
                     raise ValueError("ANTHROPIC_API_KEY environment variable is required for Anthropic Claude models")
         

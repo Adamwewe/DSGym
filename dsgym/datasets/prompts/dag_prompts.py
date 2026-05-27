@@ -8,6 +8,7 @@ rather than hardcoding a single problem as in sandbox-agents.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, Optional
 
 # ---------------------------------------------------------------------------
@@ -74,6 +75,64 @@ Rules:
 - The graph must be acyclic (nodes listed in execution order).
 """
 
+_PROMPT_PROFILE_CACHE: Dict[str, Any] = {
+    "path": None,
+    "mtime": None,
+    "profile": {},
+}
+
+
+def _load_prompt_profile() -> Dict[str, Any]:
+    profile_path = os.getenv("DSGYM_DAG_PROMPT_PROFILE", "").strip()
+    if not profile_path:
+        _PROMPT_PROFILE_CACHE.update({"path": None, "mtime": None, "profile": {}})
+        return {}
+
+    try:
+        mtime = os.path.getmtime(profile_path)
+    except OSError:
+        return {}
+
+    if (
+        _PROMPT_PROFILE_CACHE["path"] == profile_path
+        and _PROMPT_PROFILE_CACHE["mtime"] == mtime
+    ):
+        return _PROMPT_PROFILE_CACHE["profile"]
+
+    try:
+        with open(profile_path, "r", encoding="utf-8") as f:
+            profile = json.load(f)
+            if not isinstance(profile, dict):
+                profile = {}
+    except Exception:
+        profile = {}
+
+    _PROMPT_PROFILE_CACHE.update({"path": profile_path, "mtime": mtime, "profile": profile})
+    return profile
+
+
+def _profile_value(section: str, key: str, default: str) -> str:
+    profile = _load_prompt_profile()
+    scoped = profile.get(section, {}) if isinstance(profile.get(section, {}), dict) else {}
+    global_values = profile.get("global", {}) if isinstance(profile.get("global", {}), dict) else {}
+
+    value = scoped.get(key, global_values.get(key, default))
+    return value if isinstance(value, str) else default
+
+
+def _with_prefix_suffix(section: str, kind: str, body: str) -> str:
+    prefix = _profile_value(section, f"{kind}_user_prefix", "").strip()
+    suffix = _profile_value(section, f"{kind}_user_suffix", "").strip()
+
+    chunks = []
+    if prefix:
+        chunks.append(prefix)
+    chunks.append(body)
+    if suffix:
+        chunks.append(suffix)
+
+    return "\n\n".join(chunks)
+
 
 # ---------------------------------------------------------------------------
 # Prompt builders
@@ -101,7 +160,8 @@ EXAMPLE OUTPUT (follow the schema only — do NOT copy this graph for your answe
 
 Produce the reasoning DAG for the question above.
 """
-    return _REASONING_SYSTEM_PROMPT, user_prompt
+    system_prompt = _profile_value("dsbio", "reasoning_system_prompt", _REASONING_SYSTEM_PROMPT)
+    return system_prompt, _with_prefix_suffix("dsbio", "reasoning", user_prompt)
 
 
 def build_implementation_prompt(
@@ -134,7 +194,8 @@ EXAMPLE OUTPUT (follow schema only — do NOT copy this graph for your answer):
 
 Produce the implementation DAG for the question above.
 """
-    return _IMPLEMENTATION_SYSTEM_PROMPT, user_prompt
+    system_prompt = _profile_value("dsbio", "implementation_system_prompt", _IMPLEMENTATION_SYSTEM_PROMPT)
+    return system_prompt, _with_prefix_suffix("dsbio", "implementation", user_prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +279,8 @@ EXAMPLE OUTPUT (follow the schema only — do NOT copy this graph for your answe
 
 Produce the reasoning DAG for the competition above.
 """
-    return _REASONING_SYSTEM_PROMPT_DSPREDICT, user_prompt
+    system_prompt = _profile_value("dspredict", "reasoning_system_prompt", _REASONING_SYSTEM_PROMPT_DSPREDICT)
+    return system_prompt, _with_prefix_suffix("dspredict", "reasoning", user_prompt)
 
 
 def build_implementation_prompt_dspredict(
@@ -251,4 +313,5 @@ EXAMPLE OUTPUT (follow schema only — do NOT copy this graph for your answer):
 
 Produce the implementation DAG for the competition above.
 """
-    return _IMPLEMENTATION_SYSTEM_PROMPT_DSPREDICT, user_prompt
+    system_prompt = _profile_value("dspredict", "implementation_system_prompt", _IMPLEMENTATION_SYSTEM_PROMPT_DSPREDICT)
+    return system_prompt, _with_prefix_suffix("dspredict", "implementation", user_prompt)

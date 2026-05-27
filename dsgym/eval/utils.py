@@ -5,6 +5,7 @@ Evaluation utilities and data structures.
 import json
 import re
 import time
+import csv
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Union
@@ -475,18 +476,27 @@ def save_evaluation_results(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     file_paths = {}
+
+    def _write_json_array(file_path: Path, rows) -> None:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write('[\n')
+            first = True
+            for row in rows:
+                if not first:
+                    f.write(',\n')
+                json.dump(row, f, ensure_ascii=False)
+                first = False
+            f.write('\n]')
     
     # Save detailed results (with raw_response and trajectory)
     results_file = output_dir / f"{run_name}_results.json"
-    with open(results_file, 'w', encoding='utf-8') as f:
-        json.dump([r.to_dict() for r in results], f, indent=2, ensure_ascii=False)
+    _write_json_array(results_file, (r.to_dict() for r in results))
     file_paths["results"] = str(results_file)
     
     # Save summary results (without raw_response and trajectory for readability)
     summary_file = output_dir / f"{run_name}_summary.json"
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        json.dump([r.to_summary_dict() for r in results], f, indent=2, ensure_ascii=False)
-    file_paths["summary"] = str(summary_file)
+    _write_json_array(summary_file, (r.to_summary_dict() for r in results))
+    file_paths["summary_json"] = str(summary_file)
     
     # Save configuration
     config_file = output_dir / f"{run_name}_config.json"
@@ -513,39 +523,60 @@ def save_evaluation_results(
     file_paths["metrics"] = str(metrics_file)
     
     # Save summary CSV for easy analysis
-    import pandas as pd
-    summary_data = []
     model_name_val = config.model_name if config is not None else ""
     use_dags_val = config.extra_config.get("generate_dags", False) if config is not None else False
+    metric_columns = set()
     for result in results:
-        summary_row = {
-            "model_name": model_name_val,
-            "use_dags": use_dags_val,
-            "sample_id": result.sample_id,
-            "dataset_name": result.dataset_name,
-            "query": result.query[:100] + "..." if len(result.query) > 100 else result.query,
-            "ground_truth": result.ground_truth if result.has_ground_truth else "N/A",
-            "prediction": result.prediction,
-            "success": result.success,
-            "execution_time": result.execution_time,
-            "total_turns": result.total_turns,
-            "has_ground_truth": result.has_ground_truth,
-        }
-        
-        # Add metric values as separate columns
         for metric_name, metric_value in result.metrics.items():
             if isinstance(metric_value, (int, float, bool)):
-                summary_row[f"metric_{metric_name}"] = metric_value
+                metric_columns.add(f"metric_{metric_name}")
             elif isinstance(metric_value, dict) and "score" in metric_value:
-                summary_row[f"metric_{metric_name}"] = metric_value["score"]
-        
-        summary_data.append(summary_row)
+                metric_columns.add(f"metric_{metric_name}")
+
+    base_columns = [
+        "model_name",
+        "use_dags",
+        "sample_id",
+        "dataset_name",
+        "query",
+        "ground_truth",
+        "prediction",
+        "success",
+        "execution_time",
+        "total_turns",
+        "has_ground_truth",
+    ]
+    ordered_metric_columns = sorted(metric_columns)
+    csv_columns = base_columns + ordered_metric_columns
     
     summary_file = output_dir / f"{run_name}_summary.csv"
-    pd.DataFrame(summary_data).to_csv(summary_file, index=False)
-    file_paths["summary"] = str(summary_file)
+    with open(summary_file, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=csv_columns, extrasaction='ignore')
+        writer.writeheader()
+        for result in results:
+            summary_row = {
+                "model_name": model_name_val,
+                "use_dags": use_dags_val,
+                "sample_id": result.sample_id,
+                "dataset_name": result.dataset_name,
+                "query": result.query[:100] + "..." if len(result.query) > 100 else result.query,
+                "ground_truth": result.ground_truth if result.has_ground_truth else "N/A",
+                "prediction": result.prediction,
+                "success": result.success,
+                "execution_time": result.execution_time,
+                "total_turns": result.total_turns,
+                "has_ground_truth": result.has_ground_truth,
+            }
 
-    # Extract and save DAG traces for dsbio and dspredict runs
+            for metric_name, metric_value in result.metrics.items():
+                key = f"metric_{metric_name}"
+                if isinstance(metric_value, (int, float, bool)):
+                    summary_row[key] = metric_value
+                elif isinstance(metric_value, dict) and "score" in metric_value:
+                    summary_row[key] = metric_value["score"]
+
+            writer.writerow(summary_row)
+    file_paths["summary"] = str(summary_file)  # CSV summary (backward-compat key)
     dag_eligible_results = [r for r in results if r.dataset_name in ("dsbio", "dspredict")]
     if dag_eligible_results and config is not None:
         dag_files = save_dag_traces(results, config.model_name, output_dir)

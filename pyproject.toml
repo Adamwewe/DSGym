@@ -120,6 +120,10 @@ synth = [
     "copulas>=0.8.0",
 ]
 
+optimize = [
+    "optuna>=3.6.0",
+]
+
 # Training support (when implemented)
 train = [
     # Will be added when training module is implemented
@@ -127,7 +131,7 @@ train = [
 
 # All optional dependencies
 all = [
-    "dsgym[dev,backends,metrics,synth]",
+    "dsgym[dev,backends,metrics,synth,optimize]",
 ]
 
 [project.urls]

@@ -12,12 +12,18 @@ Key improvements over sandbox-agents:
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Dict, Union
 
 import litellm
 
-from dsgym.datasets.dag import ImplementationDAG, ReasoningDAG
+from dsgym.datasets.dag import (
+    ImplementationDAG,
+    ReasoningDAG,
+    validate_implementation_dag,
+    validate_reasoning_dag,
+)
 from dsgym.datasets.prompts.dag_prompts import (
     build_implementation_prompt,
     build_reasoning_prompt,
@@ -70,10 +76,42 @@ def _extract_json(raw: str) -> str:
     raise ValueError(f"Could not extract valid JSON from model response: {raw[:200]!r}")
 
 
+def resolve_dag_validation_mode(section: str = "global") -> str:
+    """Resolve DAG validation mode from env/profile.
+
+    Priority:
+      1) DSGYM_DAG_VALIDATION_MODE
+      2) DSGYM_DAG_PROMPT_PROFILE (section/global dag_validation_mode)
+      3) default
+    """
+    env_mode = os.getenv("DSGYM_DAG_VALIDATION_MODE", "").strip().lower()
+    if env_mode in {"default", "relaxed", "strict"}:
+        return env_mode
+
+    profile_path = os.getenv("DSGYM_DAG_PROMPT_PROFILE", "").strip()
+    if profile_path:
+        try:
+            with open(profile_path, "r", encoding="utf-8") as f:
+                profile = json.load(f)
+            if isinstance(profile, dict):
+                scoped = profile.get(section, {}) if isinstance(profile.get(section, {}), dict) else {}
+                global_values = profile.get("global", {}) if isinstance(profile.get("global", {}), dict) else {}
+                profile_mode = scoped.get("dag_validation_mode", global_values.get("dag_validation_mode", ""))
+                if isinstance(profile_mode, str):
+                    profile_mode = profile_mode.strip().lower()
+                    if profile_mode in {"default", "relaxed", "strict"}:
+                        return profile_mode
+        except Exception:
+            pass
+
+    return "default"
+
+
 def generate_reasoning_dag(
     question: str,
     context: str,
     model: str = "gpt-4o",
+    dag_validation_mode: str | None = None,
 ) -> ReasoningDAG:
     """
     Generate a reasoning DAG for a DSBio question.
@@ -103,7 +141,9 @@ def generate_reasoning_dag(
     raw = response.choices[0].message.content
     if not raw:
         raise RuntimeError("Empty response from model when generating ReasoningDAG")
-    return ReasoningDAG.model_validate_json(_extract_json(raw))
+    dag = ReasoningDAG.model_validate_json(_extract_json(raw))
+    validate_reasoning_dag(dag, mode=dag_validation_mode or resolve_dag_validation_mode("dsbio"))
+    return dag
 
 
 def generate_implementation_dag(
@@ -111,6 +151,7 @@ def generate_implementation_dag(
     context: str,
     reasoning_dag: Union[ReasoningDAG, Dict[str, Any]],
     model: str = "gpt-4o",
+    dag_validation_mode: str | None = None,
 ) -> ImplementationDAG:
     """
     Generate an implementation DAG grounded in a reasoning DAG.
@@ -125,9 +166,12 @@ def generate_implementation_dag(
         Validated ImplementationDAG instance.
     """
     # Accept either a ReasoningDAG model or a plain dict
+    typed_reasoning_dag: ReasoningDAG
     if isinstance(reasoning_dag, ReasoningDAG):
+        typed_reasoning_dag = reasoning_dag
         reasoning_dict = json.loads(reasoning_dag.model_dump_json())
     else:
+        typed_reasoning_dag = ReasoningDAG.model_validate(reasoning_dag)
         reasoning_dict = reasoning_dag
 
     system_prompt, user_prompt = build_implementation_prompt(
@@ -150,12 +194,19 @@ def generate_implementation_dag(
     if not raw:
         raise RuntimeError("Empty response from model when generating ImplementationDAG")
 
-    return ImplementationDAG.model_validate_json(_extract_json(raw))
+    implementation = ImplementationDAG.model_validate_json(_extract_json(raw))
+    validate_implementation_dag(
+        implementation,
+        reasoning_dag=typed_reasoning_dag,
+        mode=dag_validation_mode or resolve_dag_validation_mode("dsbio"),
+    )
+    return implementation
 
 
 def generate_dags_for_sample(
     sample: Dict[str, Any],
     model: str = "gpt-4o",
+    dag_validation_mode: str | None = None,
 ) -> Dict[str, Any]:
     """
     Convenience function: generate both reasoning and implementation DAGs
@@ -176,9 +227,10 @@ def generate_dags_for_sample(
     if not question:
         raise ValueError("Sample 'extra_info' must contain a non-empty 'question' field")
 
-    reasoning = generate_reasoning_dag(question, context, model=model)
+    resolved_mode = dag_validation_mode or resolve_dag_validation_mode("dsbio")
+    reasoning = generate_reasoning_dag(question, context, model=model, dag_validation_mode=resolved_mode)
     implementation = generate_implementation_dag(
-        question, context, reasoning, model=model
+        question, context, reasoning, model=model, dag_validation_mode=resolved_mode
     )
 
     return {"reasoning": reasoning, "implementation": implementation}

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dsgym.agents import DSPredictReActAgent, ReActDSAgent
 from dsgym.datasets import DatasetRegistry
+from dsgym.datasets.dag_generator import _supports_json_object_format
 from dsgym.eval import EvaluationConfig, Evaluator
 from dsgym.optimization.harness_evaluator import StrictHarnessEvaluator, StrictHarnessPolicy
 from dsgym.optimization.interfaces import (
@@ -237,16 +238,20 @@ def _template_harness_variants() -> List[TextVariant]:
 
 _KIND_LABELS: Dict[str, str] = {
     "prompt": (
-        "analytical methodology directives — reasoning approach, domain-specific priorities, "
-        "and risk or quality management during analysis"
+        "reasoning and implementation DAG planning directives — analytical framework choice "
+        "(risk-first, validation-gated, metric-anchored, assumption-audit), "
+        "domain-specific reasoning gates (QC gates, leakage prevention, statistical test selection), "
+        "and step decomposition strategy injected into the DAG generation system prompts"
     ),
     "context": (
-        "task framing and acceptance criteria — research brief structure, "
-        "intermediate output validation rules, and goal-clarity aids"
+        "task framing presented to the agent after DAGs are generated — "
+        "how the problem statement, acceptance criteria, and intermediate output expectations "
+        "are injected into the agent's user message"
     ),
     "harness": (
-        "execution constraints and compliance contracts — plan adherence rules, "
-        "loop and repetition prohibition, and plan deviation/revision protocol"
+        "agent-DAG compliance contracts — plan adherence rules, "
+        "loop and repetition prohibition, and deviation/revision protocol "
+        "for when the agent must depart from the DAG plan"
     ),
 }
 

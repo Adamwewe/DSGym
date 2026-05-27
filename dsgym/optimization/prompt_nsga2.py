@@ -79,6 +79,7 @@ def _load_tasks(config: PromptOptimizationConfig):
 
 
 def _compose_prompt_profile(trial: Any, family: str) -> Dict[str, Any]:
+    # ── Shared structural parameters ───────────────────────────────────────
     max_nodes = trial.suggest_int("max_nodes", 4, 8)
     mandate_json = trial.suggest_categorical("mandate_json", ["strict", "very_strict"])
     decomposition = trial.suggest_categorical("decomposition", ["coarse", "balanced", "fine"])
@@ -86,80 +87,263 @@ def _compose_prompt_profile(trial: Any, family: str) -> Dict[str, Any]:
     require_validation_step = trial.suggest_categorical("require_validation_step", [True, False])
     include_budget = trial.suggest_categorical("include_budget", [True, False])
 
+    # ── Reasoning DAG-specific parameters ──────────────────────────────────
+    # Five distinct frameworks drive genuinely different graph topologies:
+    #   top_down        – backwards decomposition from desired output
+    #   risk_first      – defensive planning around highest-risk failure points
+    #   validation_gated – each step is a conditional gate on its predecessor
+    #   metric_anchored – every step references the evaluation metric
+    #   assumption_audit – enumerate implicit assumptions and plan to test them
+    reasoning_framework = trial.suggest_categorical(
+        "reasoning_framework",
+        ["top_down", "risk_first", "validation_gated", "metric_anchored", "assumption_audit"],
+    )
+    require_expected_output = trial.suggest_categorical("require_expected_output", [True, False])
+
+    # ── Implementation DAG-specific parameters (independent search) ────────
+    impl_specificity = trial.suggest_categorical(
+        "impl_specificity",
+        ["task_description", "library_agnostic_ops", "api_guided"],
+    )
+    impl_output_contract = trial.suggest_categorical("impl_output_contract", [True, False])
+
+    # ── Domain-specific parameters ─────────────────────────────────────────
     if family == "dsbio":
-        base_reasoning = """You are an expert computational biologist.
-Given a biological question and context, produce a concise JSON reasoning DAG
-capturing the ordered analytical steps an expert would think through before writing code.
-
-Rules:
-- Return ONLY valid JSON. No markdown or prose outside the JSON.
-- Use 3 to 6 nodes maximum. Do not over-engineer.
-- Each node: one clear, high-level reasoning step (not a code instruction).
-- Edges need only \"source\" and \"target\".
-- The graph must be acyclic (nodes listed in execution order).
-- Label each node at the level of an analytical decision, not a library call.
-"""
-        base_impl = """You are an expert computational biologist.
-Given a biological question, context, and a reasoning DAG, produce a JSON implementation
-DAG of concrete, executable steps that follow the provided reasoning DAG.
-
-Rules:
-- Return ONLY valid JSON. No markdown or prose outside the JSON.
-- Produce exactly one implementation node per reasoning node (1:1 mapping).
-- Mirror the reasoning DAG structure exactly — same number of nodes and edges.
-- Each node: one concrete, executable step with a descriptive label.
-- Edges need only \"source\" and \"target\".
-- The graph must be acyclic (nodes listed in execution order).
-"""
+        bio_qc_gate = trial.suggest_categorical("bio_qc_gate", [True, False])
+        bio_stat_test_selection = trial.suggest_categorical("bio_stat_test_selection", [True, False])
+        bio_interpretation = trial.suggest_categorical("bio_interpretation", [True, False])
     else:
-        base_reasoning = """You are an expert data scientist and machine learning engineer.
-Given a Kaggle-style competition description, produce a concise JSON reasoning DAG
-capturing the ordered analytical steps an expert would think through before writing code.
+        leakage_prevention = trial.suggest_categorical("leakage_prevention", [True, False])
+        metric_alignment = trial.suggest_categorical("metric_alignment", [True, False])
+        cv_strategy_explicit = trial.suggest_categorical("cv_strategy_explicit", [True, False])
 
-Rules:
-- Return ONLY valid JSON. No markdown or prose outside the JSON.
-- Use 3 to 6 nodes maximum. Do not over-engineer.
-- Each node: one clear, high-level reasoning step (not a code instruction).
-- Edges need only \"source\" and \"target\".
-- The graph must be acyclic (nodes listed in execution order).
-- Label each node at the level of an analytical decision, not a library call.
-"""
-        base_impl = """You are an expert data scientist and machine learning engineer.
-Given a competition description, context, and a reasoning DAG, produce a JSON implementation
-DAG of concrete, executable steps that follow the provided reasoning DAG.
+    # ── Reasoning framework clause ─────────────────────────────────────────
+    _framework_clauses: Dict[str, str] = {
+        "top_down": (
+            "- Decompose from the desired final output backwards: identify what must be true "
+            "immediately before the final step, and before that, until you reach the inputs."
+        ),
+        "risk_first": (
+            "- Identify the highest-risk failure points first (data quality, model assumptions, "
+            "statistical validity), then structure the plan to mitigate them before each step."
+        ),
+        "validation_gated": (
+            "- Treat each reasoning step as a conditional gate: state the condition that must hold "
+            "before the next step proceeds (e.g., 'proceed only if QC passes n_cells > threshold')."
+        ),
+        "metric_anchored": (
+            "- Anchor every reasoning step to the evaluation metric: each node must explain "
+            "how it directly contributes to or protects the target metric."
+        ),
+        "assumption_audit": (
+            "- Begin by enumerating the key assumptions implicit in the question "
+            "(distributional, biological, domain-specific). Structure the plan to test or "
+            "acknowledge each assumption before proceeding."
+        ),
+    }
+    framework_clause = _framework_clauses[reasoning_framework]
 
-Rules:
-- Return ONLY valid JSON. No markdown or prose outside the JSON.
-- Produce exactly one implementation node per reasoning node (1:1 mapping).
-- Mirror the reasoning DAG structure exactly — same number of nodes and edges.
-- Each node: one concrete, executable step with a descriptive label.
-- Edges need only \"source\" and \"target\".
-- The graph must be acyclic (nodes listed in execution order).
-- The final node must produce /submission/submission.csv in the required format.
-"""
+    expected_output_clause = (
+        "- Each reasoning node must specify the expected intermediate output or decision outcome "
+        "(e.g., 'output: set of variable genes', 'decision: test type and significance threshold')."
+        if require_expected_output
+        else ""
+    )
 
+    # ── Implementation specificity clause ──────────────────────────────────
+    _impl_specificity_clauses: Dict[str, str] = {
+        "task_description": (
+            "- Describe each step as a high-level task: what is accomplished, not which library call."
+        ),
+        "library_agnostic_ops": (
+            "- Describe each step as a composable operation "
+            "(e.g., 'filter rows where column > threshold', 'fit model on training folds') "
+            "without naming specific library APIs."
+        ),
+        "api_guided": (
+            "- Each node may name the primary library or function family as a hint "
+            "(e.g., 'scanpy QC metrics', 'sklearn Pipeline + cross_val_score') "
+            "to guide the executing agent."
+        ),
+    }
+    impl_specificity_clause = _impl_specificity_clauses[impl_specificity]
+
+    impl_output_contract_clause = (
+        "- Each implementation node must state its output contract: shape, type, or path produced "
+        "(e.g., 'produces filtered AnnData n_obs < original', 'writes submission.csv [id, target]')."
+        if impl_output_contract
+        else ""
+    )
+
+    # ── Shared structural clauses ──────────────────────────────────────────
     strict_json_clause = (
-        "- JSON must parse with a strict RFC8259 parser and contain no trailing commentary."
+        "- JSON must parse with a strict RFC8259 parser; no trailing commentary."
         if mandate_json == "very_strict"
         else "- Ensure JSON is syntactically valid and self-contained."
     )
+    decomposition_clause = {
+        "coarse": "- Prefer broader strategic steps over micro-steps.",
+        "fine": "- Prefer finer-grained steps only when they reduce execution risk.",
+        "balanced": "- Use balanced granularity to preserve clarity and executability.",
+    }[decomposition]
+    risk_clause = (
+        "- Include explicit failure-risk reasoning (data quality, leakage, unstable assumptions)."
+        if require_risk_check
+        else ""
+    )
+    validation_clause = (
+        "- Include a validation or checkpoint step before the final answer or submission."
+        if require_validation_step
+        else ""
+    )
+    budget_clause = (
+        "- Constrain the plan for efficient execution; avoid unnecessary expensive operations."
+        if include_budget
+        else ""
+    )
 
-    if decomposition == "coarse":
-        decomposition_clause = "- Prefer broader strategic steps over micro-steps."
-    elif decomposition == "fine":
-        decomposition_clause = "- Prefer finer-grained steps only when they reduce execution risk."
+    # ── Domain-specific clauses ────────────────────────────────────────────
+    if family == "dsbio":
+        domain_reasoning_extras = "\n".join(
+            c for c in [
+                (
+                    "- Include a QC gate node: reasoning must explicitly decide whether the data "
+                    "passes quality thresholds before proceeding to analysis."
+                    if bio_qc_gate
+                    else ""
+                ),
+                (
+                    "- Include explicit statistical test selection: choose the appropriate test "
+                    "(Wilcoxon, t-test, DESeq2, etc.) based on data distribution and sample size, "
+                    "not by default."
+                    if bio_stat_test_selection
+                    else ""
+                ),
+                (
+                    "- The final reasoning node must frame results in terms of biological "
+                    "significance, not only statistical significance."
+                    if bio_interpretation
+                    else ""
+                ),
+            ]
+            if c
+        )
+        domain_impl_extras = (
+            "- Follow the biological analysis pipeline faithfully; do not skip QC or "
+            "normalisation steps even if they appear optional."
+        )
+        base_reasoning = (
+            "You are an expert computational biologist.\n"
+            "Given a biological question and context, produce a concise JSON reasoning DAG\n"
+            "capturing the ordered analytical decisions an expert makes before writing code.\n"
+            "\n"
+            "Rules:\n"
+            '- Return ONLY valid JSON. No markdown or prose outside the JSON.\n'
+            "- Each node: one analytical decision, not a code instruction.\n"
+            '- Edges need only "source" and "target".\n'
+            "- The graph must be acyclic (nodes in execution order).\n"
+            "- Label at the decision level, not the library-call level."
+        )
+        base_impl = (
+            "You are an expert computational biologist.\n"
+            "Given a biological question, context, and a reasoning DAG, produce a JSON\n"
+            "implementation DAG of concrete executable steps that realise each reasoning node.\n"
+            "\n"
+            "Rules:\n"
+            '- Return ONLY valid JSON. No markdown or prose outside the JSON.\n'
+            "- Produce exactly one implementation node per reasoning node (1:1 mapping).\n"
+            "- Mirror the reasoning DAG structure exactly — same nodes and edges.\n"
+            '- Edges need only "source" and "target".\n'
+            "- The graph must be acyclic."
+        )
     else:
-        decomposition_clause = "- Use balanced granularity to preserve clarity and executability."
+        domain_reasoning_extras = "\n".join(
+            c for c in [
+                (
+                    "- Include an explicit leakage-prevention node: identify features and "
+                    "transformations that could introduce target leakage and specify how to prevent it."
+                    if leakage_prevention
+                    else ""
+                ),
+                (
+                    "- Every reasoning step must reference the competition evaluation metric: "
+                    "explain how it optimises or protects that metric."
+                    if metric_alignment
+                    else ""
+                ),
+                (
+                    "- Include a cross-validation strategy node: choose fold count, "
+                    "stratification, and grouping based on the competition data structure."
+                    if cv_strategy_explicit
+                    else ""
+                ),
+            ]
+            if c
+        )
+        domain_impl_extras = (
+            "- The final implementation node must produce /submission/submission.csv "
+            "with the correct column names and format."
+        )
+        base_reasoning = (
+            "You are an expert data scientist and machine learning engineer.\n"
+            "Given a Kaggle-style competition description, produce a concise JSON reasoning DAG\n"
+            "capturing the ordered analytical decisions an expert makes before writing code.\n"
+            "\n"
+            "Rules:\n"
+            '- Return ONLY valid JSON. No markdown or prose outside the JSON.\n'
+            "- Each node: one analytical decision, not a code instruction.\n"
+            '- Edges need only "source" and "target".\n'
+            "- The graph must be acyclic (nodes in execution order).\n"
+            "- Label at the decision level, not the library-call level."
+        )
+        base_impl = (
+            "You are an expert data scientist and machine learning engineer.\n"
+            "Given a competition description, context, and a reasoning DAG, produce a JSON\n"
+            "implementation DAG of concrete executable steps that realise each reasoning node.\n"
+            "\n"
+            "Rules:\n"
+            '- Return ONLY valid JSON. No markdown or prose outside the JSON.\n'
+            "- Produce exactly one implementation node per reasoning node (1:1 mapping).\n"
+            "- Mirror the reasoning DAG structure exactly — same nodes and edges.\n"
+            '- Edges need only "source" and "target".\n'
+            "- The graph must be acyclic."
+        )
 
-    risk_clause = "- Include explicit failure-risk reasoning (data quality, leakage, unstable assumptions)." if require_risk_check else ""
-    validation_clause = "- Include a validation/checkpoint step before final answer/submission." if require_validation_step else ""
-    budget_clause = "- Constrain the plan for efficient execution; avoid unnecessary expensive operations." if include_budget else ""
-
-    extension = "\n".join(x for x in [strict_json_clause, decomposition_clause, risk_clause, validation_clause, budget_clause, f"- Use at most {max_nodes} nodes."] if x)
+    # ── Compose per-DAG prompt extensions ─────────────────────────────────
+    reasoning_extension = "\n".join(
+        x
+        for x in [
+            strict_json_clause,
+            framework_clause,
+            decomposition_clause,
+            expected_output_clause,
+            risk_clause,
+            validation_clause,
+            budget_clause,
+            domain_reasoning_extras,
+            f"- Use at most {max_nodes} nodes.",
+        ]
+        if x
+    )
+    implementation_extension = "\n".join(
+        x
+        for x in [
+            strict_json_clause,
+            decomposition_clause,
+            impl_specificity_clause,
+            impl_output_contract_clause,
+            risk_clause,
+            validation_clause,
+            budget_clause,
+            domain_impl_extras,
+            f"- Use at most {max_nodes} nodes.",
+        ]
+        if x
+    )
 
     profile_section = {
-        "reasoning_system_prompt": f"{base_reasoning.strip()}\n{extension}".strip(),
-        "implementation_system_prompt": f"{base_impl.strip()}\n{extension}".strip(),
+        "reasoning_system_prompt": f"{base_reasoning.strip()}\n{reasoning_extension}".strip(),
+        "implementation_system_prompt": f"{base_impl.strip()}\n{implementation_extension}".strip(),
         "reasoning_user_suffix": "Return only JSON object output.",
         "implementation_user_suffix": "Return only JSON object output.",
     }

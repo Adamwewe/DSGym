@@ -14,7 +14,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=0
     - container.port=60000
@@ -42,7 +42,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=1
     - container.port=60001
@@ -70,7 +70,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=2
     - container.port=60002
@@ -98,7 +98,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=3
     - container.port=60003
@@ -126,7 +126,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=4
     - container.port=60004
@@ -154,7 +154,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=5
     - container.port=60005
@@ -182,7 +182,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=6
     - container.port=60006
@@ -210,7 +210,7 @@ services:
     - EXECUTION_TIMEOUT=300
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=7
     - container.port=60007
@@ -243,7 +243,7 @@ services:
     - executor-005
     - executor-006
     - executor-007
-    restart: unless-stopped
+    restart: on-failure
 networks:
   default:
     driver: bridge

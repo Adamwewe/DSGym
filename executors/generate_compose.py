@@ -9,15 +9,16 @@ import argparse
 import os
 from typing import Optional
 
-def generate_container_config(container_id: int, 
-                              host_port: int, 
-                              container_type: str = 'default', 
-                              mountable_volumes: Optional[str] = None, 
+def generate_container_config(container_id: int,
+                              host_port: int,
+                              container_type: str = 'default',
+                              mountable_volumes: Optional[str] = None,
                               mountable_volume_saveto: Optional[str] = None,
-                              extra_env: Optional[dict] = None, 
+                              extra_env: Optional[dict] = None,
                               manager_url: Optional[str] = None,
                               gpu_id: Optional[int] = None,
-                              apple_silicon: bool = False) -> dict:
+                              apple_silicon: bool = False,
+                              restart_policy: str = 'on-failure') -> dict:
 
     # default values. these can be set with the env vars passed in
     execution_timeout = extra_env['EXECUTION_TIMEOUT'] if extra_env and 'EXECUTION_TIMEOUT' in extra_env else '360'
@@ -44,7 +45,7 @@ def generate_container_config(container_id: int,
         'command': 'python main.py',
         'ports': [f'{host_port}:8432'],
         'environment': base_env,
-        'restart': 'unless-stopped',
+        'restart': restart_policy,
         'labels': [
             f'container.id={container_id}',
             f'container.port={host_port}',
@@ -139,8 +140,20 @@ def generate_compose_file(
     extra_env: Optional[dict] = None,
     gpu_ids: Optional[list[int]] = None,
     config_file: str = 'container_config.json',
-    apple_silicon: bool = False
+    apple_silicon: bool = False,
+    restart_policy: str = 'on-failure'
 ) -> None:
+    """
+    restart_policy choices:
+      'on-failure'     — restart only on non-zero exit (crash); honours
+                         `docker compose stop` / `docker compose down`.
+                         Use this for ephemeral executor pools.
+      'unless-stopped' — restarts even after explicit `docker stop` and
+                         survives daemon restarts; containers CANNOT be
+                         terminated without `docker compose down`.  Only
+                         use when you intend permanently-running services.
+      'no'             — never auto-restart; safest for development/CI.
+    """
     """Generate a complete Docker Compose file"""
     
     # Validate GPU IDs if provided
@@ -184,7 +197,7 @@ def generate_compose_file(
         # Assign GPU ID if provided
         gpu_id = gpu_ids[i] if gpu_ids else None
         
-        services[service_name] = generate_container_config(container_id, host_port, container_type, mountable_volumes, mountable_volume_saveto, extra_env, manager_url=None, gpu_id=gpu_id, apple_silicon=apple_silicon)
+        services[service_name] = generate_container_config(container_id, host_port, container_type, mountable_volumes, mountable_volume_saveto, extra_env, manager_url=None, gpu_id=gpu_id, apple_silicon=apple_silicon, restart_policy=restart_policy)
     
     # Add manager service
     services['manager'] = {
@@ -193,13 +206,17 @@ def generate_compose_file(
         'ports': ['5000:5000'],
         'environment': [
             'PORT=5000',
-            'CONTAINER_CONFIG_PATH=container_config.json'
+            'CONTAINER_CONFIG_PATH=container_config.json',
+            # MANAGER_SECRET must be injected at deploy time via a .env file or
+            # the shell environment — it must NOT be committed to source control.
+            # Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"
+            'MANAGER_SECRET=${MANAGER_SECRET}',
         ],
         'volumes': [
             f'./{config_file}:/app/container_config.json:ro'
         ],
         'depends_on': [f'executor-{i:03d}' for i in range(num_containers)],
-        'restart': 'unless-stopped'
+        'restart': restart_policy
     }
     
     # Create the complete compose configuration
@@ -299,7 +316,18 @@ def main():
     parser.add_argument('--apple-silicon', action='store_true',
                         help='Target Apple Silicon (arm64). Adds platform: linux/arm64 to each service '
                              'and disables nvidia GPU config. Use with executor-kaggle-apple image.')
-    
+    parser.add_argument(
+        '--restart-policy', default='on-failure',
+        choices=['on-failure', 'no', 'unless-stopped', 'always'],
+        help=(
+            'Docker restart policy for all services (default: on-failure). '
+            'Use "on-failure" for ephemeral executor pools so that '
+            '`docker compose stop/down` is honoured without containers '
+            'immediately respawning. Use "unless-stopped" only when you '
+            'need containers to survive host reboots and explicit stops.'
+        )
+    )
+
     args = parser.parse_args()
     
     extra_env = parse_env_vars(args.env) if args.env else None
@@ -327,7 +355,8 @@ def main():
         extra_env=extra_env,
         gpu_ids=gpu_ids,
         config_file=args.config_file,
-        apple_silicon=args.apple_silicon
+        apple_silicon=args.apple_silicon,
+        restart_policy=args.restart_policy
     )
     
     generate_container_config_json(

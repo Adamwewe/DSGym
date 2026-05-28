@@ -12,7 +12,7 @@ services:
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=0
     - container.port=60000
@@ -34,7 +34,7 @@ services:
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=1
     - container.port=60001
@@ -56,7 +56,7 @@ services:
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=2
     - container.port=60002
@@ -78,7 +78,7 @@ services:
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=3
     - container.port=60003
@@ -103,7 +103,7 @@ services:
     - executor-001
     - executor-002
     - executor-003
-    restart: unless-stopped
+    restart: on-failure
 networks:
   default:
     driver: bridge

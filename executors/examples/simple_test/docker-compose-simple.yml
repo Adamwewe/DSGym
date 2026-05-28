@@ -14,7 +14,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ./container_config.json:/app/container_config.json:ro
-    restart: unless-stopped
+    restart: on-failure
     labels:
       - service.type=manager
     depends_on:
@@ -35,7 +35,7 @@ services:
       - HOST_PORT=60000
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-    restart: unless-stopped
+    restart: on-failure
     labels:
       - container.id=1
       - container.port=60000
@@ -54,7 +54,7 @@ services:
       - HOST_PORT=60001
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-    restart: unless-stopped
+    restart: on-failure
     labels:
       - container.id=2
       - container.port=60001
@@ -73,7 +73,7 @@ services:
       - HOST_PORT=60002
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-    restart: unless-stopped
+    restart: on-failure
     labels:
       - container.id=3
       - container.port=60002
@@ -92,7 +92,7 @@ services:
       - HOST_PORT=60003
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-    restart: unless-stopped
+    restart: on-failure
     labels:
       - container.id=4
       - container.port=60003

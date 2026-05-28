@@ -13,7 +13,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=0
     - container.port=60000
@@ -91,7 +91,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=1
     - container.port=60001
@@ -169,7 +169,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=2
     - container.port=60002
@@ -247,7 +247,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=3
     - container.port=60003
@@ -325,7 +325,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=4
     - container.port=60004
@@ -403,7 +403,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=5
     - container.port=60005
@@ -481,7 +481,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=6
     - container.port=60006
@@ -559,7 +559,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=3600
     - SUBMISSION_DIR=/submission
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=7
     - container.port=60007
@@ -643,7 +643,7 @@ services:
     - executor-005
     - executor-006
     - executor-007
-    restart: unless-stopped
+    restart: on-failure
 networks:
   default:
     driver: bridge

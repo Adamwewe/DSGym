@@ -13,7 +13,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=0
     - container.port=60000
@@ -38,7 +38,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=1
     - container.port=60001
@@ -63,7 +63,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=2
     - container.port=60002
@@ -88,7 +88,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=3
     - container.port=60003
@@ -113,7 +113,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=4
     - container.port=60004
@@ -138,7 +138,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=5
     - container.port=60005
@@ -163,7 +163,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=6
     - container.port=60006
@@ -188,7 +188,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=7
     - container.port=60007
@@ -213,7 +213,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=8
     - container.port=60008
@@ -238,7 +238,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=9
     - container.port=60009
@@ -263,7 +263,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=10
     - container.port=60010
@@ -288,7 +288,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=11
     - container.port=60011
@@ -313,7 +313,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=12
     - container.port=60012
@@ -338,7 +338,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=13
     - container.port=60013
@@ -363,7 +363,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=14
     - container.port=60014
@@ -388,7 +388,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=15
     - container.port=60015
@@ -413,7 +413,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=16
     - container.port=60016
@@ -438,7 +438,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=17
     - container.port=60017
@@ -463,7 +463,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=18
     - container.port=60018
@@ -488,7 +488,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=19
     - container.port=60019
@@ -513,7 +513,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=20
     - container.port=60020
@@ -538,7 +538,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=21
     - container.port=60021
@@ -563,7 +563,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=22
     - container.port=60022
@@ -588,7 +588,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=23
     - container.port=60023
@@ -613,7 +613,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=24
     - container.port=60024
@@ -638,7 +638,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=25
     - container.port=60025
@@ -663,7 +663,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=26
     - container.port=60026
@@ -688,7 +688,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=27
     - container.port=60027
@@ -713,7 +713,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=28
     - container.port=60028
@@ -738,7 +738,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=29
     - container.port=60029
@@ -763,7 +763,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=30
     - container.port=60030
@@ -788,7 +788,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=31
     - container.port=60031
@@ -813,7 +813,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=32
     - container.port=60032
@@ -838,7 +838,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=33
     - container.port=60033
@@ -863,7 +863,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=34
     - container.port=60034
@@ -888,7 +888,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=35
     - container.port=60035
@@ -913,7 +913,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=36
     - container.port=60036
@@ -938,7 +938,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=37
     - container.port=60037
@@ -963,7 +963,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=38
     - container.port=60038
@@ -988,7 +988,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=39
     - container.port=60039
@@ -1013,7 +1013,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=40
     - container.port=60040
@@ -1038,7 +1038,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=41
     - container.port=60041
@@ -1063,7 +1063,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=42
     - container.port=60042
@@ -1088,7 +1088,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=43
     - container.port=60043
@@ -1113,7 +1113,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=44
     - container.port=60044
@@ -1138,7 +1138,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=45
     - container.port=60045
@@ -1163,7 +1163,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=46
     - container.port=60046
@@ -1188,7 +1188,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=47
     - container.port=60047
@@ -1213,7 +1213,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=48
     - container.port=60048
@@ -1238,7 +1238,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=49
     - container.port=60049
@@ -1263,7 +1263,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=50
     - container.port=60050
@@ -1288,7 +1288,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=51
     - container.port=60051
@@ -1313,7 +1313,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=52
     - container.port=60052
@@ -1338,7 +1338,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=53
     - container.port=60053
@@ -1363,7 +1363,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=54
     - container.port=60054
@@ -1388,7 +1388,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=55
     - container.port=60055
@@ -1413,7 +1413,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=56
     - container.port=60056
@@ -1438,7 +1438,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=57
     - container.port=60057
@@ -1463,7 +1463,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=58
     - container.port=60058
@@ -1488,7 +1488,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=59
     - container.port=60059
@@ -1513,7 +1513,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=60
     - container.port=60060
@@ -1538,7 +1538,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=61
     - container.port=60061
@@ -1563,7 +1563,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=62
     - container.port=60062
@@ -1588,7 +1588,7 @@ services:
     - PYTHONDONTWRITEBYTECODE=1
     - EXECUTION_TIMEOUT=360
     - WORKSPACE_FOLDER=/data
-    restart: unless-stopped
+    restart: on-failure
     labels:
     - container.id=63
     - container.port=60063
@@ -1675,7 +1675,7 @@ services:
     - executor-061
     - executor-062
     - executor-063
-    restart: unless-stopped
+    restart: on-failure
 networks:
   default:
     driver: bridge

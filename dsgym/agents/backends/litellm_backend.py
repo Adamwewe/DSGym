@@ -96,21 +96,18 @@ class LiteLLMBackend(BaseBackend):
         return normalized or None
     
     def _setup_litellm(self):
-        """Setup LiteLLM configuration and API keys."""
+        """Resolve and validate the API key; do NOT write it to os.environ.
+
+        Writing provider keys into os.environ at constructor time pollutes the
+        process environment globally.  In multi-threaded evaluation runs this
+        causes different LiteLLMBackend instances (e.g. OpenAI + Together) to
+        overwrite each other’s keys.  We keep the key on self.api_key and pass
+        it per-call instead.
+        """
         self.api_key = self._normalize_api_key(self.api_key)
 
-        # Set API key based on model provider
-        if self.api_key:
-            if self.model_name.startswith("together_ai/"):
-                os.environ["TOGETHER_API_KEY"] = self.api_key
-            elif self.model_name.startswith("gpt-") or self._is_reasoning_model(self.model_name):
-                os.environ["OPENAI_API_KEY"] = self.api_key
-            elif self.model_name.startswith("claude-") or self.model_name.startswith("anthropic/"):
-                os.environ["ANTHROPIC_API_KEY"] = self.api_key
-            else:
-                litellm.api_key = self.api_key
-        else:
-            # Check for required environment variables
+        if not self.api_key:
+            # Fall back to the provider’s conventional env var.
             if self.model_name.startswith("together_ai/"):
                 self.api_key = self._normalize_api_key(os.environ.get("TOGETHER_API_KEY"))
                 if not self.api_key:
@@ -123,14 +120,10 @@ class LiteLLMBackend(BaseBackend):
                 self.api_key = self._normalize_api_key(os.environ.get("ANTHROPIC_API_KEY"))
                 if not self.api_key:
                     raise ValueError("ANTHROPIC_API_KEY environment variable is required for Anthropic Claude models")
-        
-        # Set base URL if provided
-        if self.base_url:
-            litellm.api_base = self.base_url
-        
-        # Configure LiteLLM settings
-        litellm.drop_params = True  # Drop unsupported parameters
-        litellm.set_verbose = False  # Disable verbose logging
+
+        # Configure LiteLLM settings (these are safe module-level flags).
+        litellm.drop_params = True   # Drop unsupported parameters silently
+        litellm.set_verbose = False  # Suppress verbose logging
     
     def generate(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
@@ -155,12 +148,20 @@ class LiteLLMBackend(BaseBackend):
         # Retry logic with exponential backoff
         for attempt in range(self.max_retries):
             try:
-                response = litellm.completion(
-                    model=self.model_name, 
-                    messages=messages, 
-                    timeout=self.timeout, 
-                    **params
+                # Pass api_key and api_base per-call so each LiteLLMBackend
+                # instance is fully isolated — no global os.environ mutation.
+                call_kwargs: dict = dict(
+                    model=self.model_name,
+                    messages=messages,
+                    timeout=self.timeout,
                 )
+                if self.api_key:
+                    call_kwargs["api_key"] = self.api_key
+                if self.base_url:
+                    call_kwargs["api_base"] = self.base_url
+                call_kwargs.update(params)
+
+                response = litellm.completion(**call_kwargs)
                 content = response.choices[0].message.content
                 return content if content is not None else ""
 

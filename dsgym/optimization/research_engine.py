@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dsgym.agents import DSPredictReActAgent, ReActDSAgent
 from dsgym.datasets import DatasetRegistry
 from dsgym.datasets.dag_generator import _supports_json_object_format
+from dsgym.datasets.prompts.system_prompts import DAG_INSTRUCTION_STYLE_VARIANTS
 from dsgym.eval import EvaluationConfig, Evaluator
 from dsgym.optimization.harness_evaluator import StrictHarnessEvaluator, StrictHarnessPolicy
 from dsgym.optimization.interfaces import (
@@ -211,6 +212,26 @@ def _template_context_variants(family: str) -> List[TextVariant]:
     return common
 
 
+def _template_dag_system_variants(family: str) -> List[TextVariant]:
+    """Return DAG instruction style variants for the given dataset family.
+
+    The baseline variant (text="") keeps SYSTEM_PROMPT_DAG unchanged.
+    The other three variants replace the agent's system prompt with an
+    alternative that covers a different point in the design space:
+
+    - dag_style_reasoning_only : reasoning DAG only; no implementation DAG step
+    - dag_style_generic_plan   : structured narrative plan; no JSON schema
+    - dag_style_minimal        : single-paragraph directive; minimum instruction
+    """
+    family_variants = DAG_INSTRUCTION_STYLE_VARIANTS.get(family, {})
+    variants: List[TextVariant] = [TextVariant(name="dag_style_baseline", text="")]
+    for name in ("dag_style_reasoning_only", "dag_style_generic_plan", "dag_style_minimal"):
+        text = family_variants.get(name, "")
+        if text:
+            variants.append(TextVariant(name=name, text=text))
+    return variants
+
+
 def _template_harness_variants() -> List[TextVariant]:
     return [
         TextVariant(name="harness_baseline", text=""),
@@ -252,6 +273,13 @@ _KIND_LABELS: Dict[str, str] = {
         "agent-DAG compliance contracts — plan adherence rules, "
         "loop and repetition prohibition, and deviation/revision protocol "
         "for when the agent must depart from the DAG plan"
+    ),
+    "dag_system": (
+        "the agent's core DAG instruction style — controls the length and complexity of the "
+        "DAG workflow prompt, specificity of JSON schema requirements, whether both reasoning "
+        "and implementation DAGs are required or reasoning only, and whether explicit structured "
+        "format instructions are provided vs a minimal planning directive. "
+        "Variants replace SYSTEM_PROMPT_DAG entirely; baseline (empty) keeps the default."
     ),
 }
 
@@ -417,8 +445,9 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
                     "prompt": _variants_from_payload(payload, "prompt"),
                     "context": _variants_from_payload(payload, "context"),
                     "harness": _variants_from_payload(payload, "harness"),
+                    "dag_system": _variants_from_payload(payload, "dag_system"),
                 }
-                if all(cached[key] for key in ("prompt", "context", "harness")):
+                if all(cached[key] for key in ("prompt", "context", "harness", "dag_system")):
                     return cached
         except Exception:
             pass
@@ -426,6 +455,7 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
     prompt_variants = _template_prompt_variants(family)
     context_variants = _template_context_variants(family)
     harness_variants = _template_harness_variants()
+    dag_system_variants = _template_dag_system_variants(family)
 
     if config.generation_model:
         prompt_variants.extend(
@@ -455,11 +485,15 @@ def _build_variant_bank(config: ResearchOptimizationConfig, family: str, out_dir
                 existing_names=[v.name for v in harness_variants],
             )
         )
+        # dag_system variants are derived from curated prompts; LLM generation
+        # is intentionally skipped here because the style space is discrete and
+        # well-defined (full, reasoning-only, generic, minimal).
 
     bank = {
         "prompt": _dedupe_variants(prompt_variants),
         "context": _dedupe_variants(context_variants),
         "harness": _dedupe_variants(harness_variants),
+        "dag_system": _dedupe_variants(dag_system_variants),
     }
 
     serializable = {
@@ -481,6 +515,7 @@ def _mutate_tasks(
     prompt_variant: TextVariant,
     context_variant: TextVariant,
     harness_variant: TextVariant,
+    dag_system_variant: Optional[TextVariant] = None,
 ) -> List[Dict[str, Any]]:
     tasks = copy.deepcopy(base_tasks)
 
@@ -494,16 +529,23 @@ def _mutate_tasks(
         if not isinstance(system_msg, dict) or not isinstance(user_msg, dict):
             continue
 
-        system_content = str(system_msg.get("content", ""))
-        user_content = str(user_msg.get("content", ""))
+        # When dag_system_variant carries a non-empty text, it REPLACES the base
+        # system prompt entirely (different DAG instruction style). Addenda from
+        # prompt_variant and harness_variant are then appended on top as usual.
+        system_base = (
+            dag_system_variant.text
+            if (dag_system_variant and dag_system_variant.text)
+            else str(system_msg.get("content", ""))
+        )
 
-        system_chunks = [system_content]
+        system_chunks = [system_base]
         if prompt_variant.text:
             system_chunks.append(prompt_variant.text)
         if harness_variant.text:
             system_chunks.append(harness_variant.text)
         system_msg["content"] = "\n\n".join(chunk.strip() for chunk in system_chunks if chunk.strip())
 
+        user_content = str(user_msg.get("content", ""))
         user_chunks = [user_content]
         if context_variant.text:
             user_chunks.append(context_variant.text)
@@ -519,6 +561,7 @@ def _mutate_tasks(
                 "prompt": prompt_variant.name,
                 "context": context_variant.name,
                 "harness": harness_variant.name,
+                "dag_system": dag_system_variant.name if dag_system_variant else "dag_style_baseline",
             }
 
     return tasks
@@ -678,12 +721,14 @@ class DefaultTaskMutatorAdapter:
         prompt_variant: TextVariant,
         context_variant: TextVariant,
         harness_variant: TextVariant,
+        dag_system_variant: Optional[TextVariant] = None,
     ) -> List[Dict[str, Any]]:
         return _mutate_tasks(
             base_tasks=base_tasks,
             prompt_variant=prompt_variant,
             context_variant=context_variant,
             harness_variant=harness_variant,
+            dag_system_variant=dag_system_variant,
         )
 
 
@@ -851,6 +896,7 @@ def run_research_nsga2(
     prompt_variants = variant_bank["prompt"]
     context_variants = variant_bank["context"]
     harness_variants = variant_bank["harness"]
+    dag_system_variants = variant_bank["dag_system"]
 
     def objective(trial: Any) -> Tuple[float, float, float, float, float]:
         trial_dir = _trial_output_dir(out_dir, trial.number)
@@ -858,10 +904,12 @@ def run_research_nsga2(
         prompt_idx = trial.suggest_int("prompt_variant_idx", 0, len(prompt_variants) - 1)
         context_idx = trial.suggest_int("context_variant_idx", 0, len(context_variants) - 1)
         harness_idx = trial.suggest_int("harness_variant_idx", 0, len(harness_variants) - 1)
+        dag_system_idx = trial.suggest_int("dag_system_variant_idx", 0, len(dag_system_variants) - 1)
 
         prompt_variant = prompt_variants[prompt_idx]
         context_variant = context_variants[context_idx]
         harness_variant = harness_variants[harness_idx]
+        dag_system_variant = dag_system_variants[dag_system_idx]
 
         max_turns = trial.suggest_int("max_turns", config.max_turns_min, config.max_turns_max)
 
@@ -884,6 +932,7 @@ def run_research_nsga2(
         profile.setdefault("global", {})["selected_prompt_variant"] = prompt_variant.name
         profile.setdefault("global", {})["selected_context_variant"] = context_variant.name
         profile.setdefault("global", {})["selected_harness_variant"] = harness_variant.name
+        profile.setdefault("global", {})["selected_dag_system_variant"] = dag_system_variant.name
 
         if prompt_variant.text:
             section = profile.setdefault(family, {})
@@ -912,6 +961,7 @@ def run_research_nsga2(
                     prompt_variant=prompt_variant,
                     context_variant=context_variant,
                     harness_variant=harness_variant,
+                    dag_system_variant=dag_system_variant,
                 )
                 mode_record = mode_evaluator.evaluate(
                     config=config,
@@ -986,6 +1036,7 @@ def run_research_nsga2(
                     "prompt": asdict(prompt_variant),
                     "context": asdict(context_variant),
                     "harness": asdict(harness_variant),
+                    "dag_system": asdict(dag_system_variant),
                 },
                 "max_turns": max_turns,
                 "dag_validation_mode": dag_validation_mode,

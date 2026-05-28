@@ -6,6 +6,7 @@ import re
 import ast
 import subprocess
 import tempfile
+import resource
 import os
 from typing import Optional, Dict, Any
 from .base import BaseMetric, MetricResult
@@ -65,71 +66,60 @@ class CodeExecutionMetric(BaseMetric):
         
         return None
     
-    def _is_safe_code(self, code: str) -> bool:
+    def _validate_code(self, code: str) -> tuple[bool, str]:
         """
-        Check if code is safe to execute (basic safety checks).
+        Validate code before execution.
+
+        Returns (ok, reason).  Only rejects code that is definitively
+        unsound (oversized, unparseable).  Blocklist-based "safety" checks
+        are NOT used here because they are trivially bypassed via attribute
+        access, importlib, or __builtins__; real sandboxing is provided by
+        the per-process resource limits applied in _execute_code.
         """
         if not code:
-            return False
-        
-        # List of dangerous operations to avoid
-        dangerous_patterns = [
-            r'\bimport\s+os\b',
-            r'\bimport\s+subprocess\b',
-            r'\bimport\s+sys\b',
-            r'\b__import__\b',
-            r'\beval\b',
-            r'\bexec\b',
-            r'\bopen\s*\(',
-            r'\bfile\s*\(',
-            r'\bdelete\b',
-            r'\brm\b',
-            r'\bunlink\b',
-        ]
-        
-        for pattern in dangerous_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
-                return False
-        
-        return True
+            return False, "Empty code"
+        # Reject unreasonably large payloads (>512 KB) to prevent memory abuse.
+        if len(code) > 512 * 1024:
+            return False, f"Code too large ({len(code)} bytes; limit 524288)"
+        # Reject syntactically invalid code early.
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            return False, f"Syntax error: {e}"
+        return True, ""
     
-    def _execute_code(self, code: str) -> Dict[str, Any]:
+    def _execute_code(self, code: str) -> dict:
         """
-        Execute Python code safely and return results.
-        
-        Args:
-            code: Python code to execute
-            
-        Returns:
-            Dictionary with execution results
+        Execute Python code in a subprocess with hard resource limits and
+        return results.
         """
-        if not self._is_safe_code(code):
-            return {
-                "success": False,
-                "error": "Code contains potentially unsafe operations",
-                "output": "",
-                "execution_time": 0.0
-            }
-        
         # Create temporary file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
             f.write(code)
             temp_file = f.name
-        
+
+        def _set_resource_limits():
+            """Applied in the child process before exec."""
+            # 512 MB virtual memory ceiling
+            mem = 512 * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+            # No new child processes from the evaluated code
+            resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
+
         try:
-            # Execute code with timeout
             import time
             start_time = time.time()
-            
+
             result = subprocess.run(
                 ['python', temp_file],
                 capture_output=True,
                 text=True,
-                timeout=self.timeout
+                timeout=self.timeout,
+                preexec_fn=_set_resource_limits,
             )
-            
+
             execution_time = time.time() - start_time
-            
+
             return {
                 "success": result.returncode == 0,
                 "error": result.stderr if result.returncode != 0 else None,
@@ -137,7 +127,7 @@ class CodeExecutionMetric(BaseMetric):
                 "return_code": result.returncode,
                 "execution_time": execution_time
             }
-            
+
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
@@ -153,10 +143,9 @@ class CodeExecutionMetric(BaseMetric):
                 "execution_time": 0.0
             }
         finally:
-            # Clean up temporary file
             try:
                 os.unlink(temp_file)
-            except:
+            except Exception:
                 pass
     
     def evaluate(
@@ -180,7 +169,7 @@ class CodeExecutionMetric(BaseMetric):
         """
         # Extract code from prediction
         code = self._extract_code(prediction)
-        
+
         if code is None:
             return MetricResult(
                 metric_name=self.name,
@@ -190,7 +179,15 @@ class CodeExecutionMetric(BaseMetric):
                     "prediction": prediction
                 }
             )
-        
+
+        ok, reason = self._validate_code(code)
+        if not ok:
+            return MetricResult(
+                metric_name=self.name,
+                score=0.0,
+                details={"reason": reason, "prediction": prediction}
+            )
+
         # Execute code
         exec_result = self._execute_code(code)
         

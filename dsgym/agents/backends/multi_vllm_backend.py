@@ -13,6 +13,12 @@ from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
 
+# Module-level lock protecting all reads and writes of os.environ["CUDA_VISIBLE_DEVICES"].
+# VLLMInstance.initialize() and generate() both mutate this global env var from
+# worker threads; without a cross-instance mutex the writes race and instances
+# can end up loading or running on the wrong GPU.
+_CUDA_ENV_LOCK = threading.Lock()
+
 try:
     from vllm import LLM, SamplingParams
     from transformers import AutoTokenizer
@@ -98,50 +104,53 @@ class VLLMInstance:
     def initialize(self):
         """Initialize vLLM instance on the specified GPU."""
         try:
-            # Set GPU visibility for this process/thread
-            original_cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
-            
-            print(f"🚀 Initializing vLLM instance on GPU {self.gpu_id}")
-            
-            # Initialize tokenizer
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    self.model_name, 
-                    trust_remote_code=self.trust_remote_code
+            # Serialize CUDA_VISIBLE_DEVICES mutation so parallel init threads
+            # don't overwrite each other's GPU assignment.
+            with _CUDA_ENV_LOCK:
+                original_cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
+
+                print(f"🚀 Initializing vLLM instance on GPU {self.gpu_id}")
+
+                # Initialize tokenizer
+                try:
+                    self.tokenizer = AutoTokenizer.from_pretrained(
+                        self.model_name,
+                        trust_remote_code=self.trust_remote_code
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not load tokenizer for {self.model_name}: {e}")
+                    self.tokenizer = None
+
+                # Initialize vLLM model
+                self.llm = LLM(
+                    model=self.model_name,
+                    tensor_parallel_size=1,  # Single GPU per instance
+                    gpu_memory_utilization=self.gpu_memory_utilization,
+                    max_model_len=self.max_model_len,
+                    trust_remote_code=self.trust_remote_code,
                 )
-            except Exception as e:
-                print(f"Warning: Could not load tokenizer for {self.model_name}: {e}")
-                self.tokenizer = None
-            
-            # Initialize vLLM model
-            self.llm = LLM(
-                model=self.model_name,
-                tensor_parallel_size=1,  # Single GPU per instance
-                gpu_memory_utilization=self.gpu_memory_utilization,
-                max_model_len=self.max_model_len,
-                trust_remote_code=self.trust_remote_code,
-            )
-            
+
+                # Restore original CUDA_VISIBLE_DEVICES
+                if original_cuda_devices is not None:
+                    os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
+                elif "CUDA_VISIBLE_DEVICES" in os.environ:
+                    del os.environ["CUDA_VISIBLE_DEVICES"]
+
             self.is_ready = True
             print(f"✅ vLLM instance on GPU {self.gpu_id} ready")
-            
-            # Restore original CUDA_VISIBLE_DEVICES
-            if original_cuda_devices is not None:
-                os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
-            elif "CUDA_VISIBLE_DEVICES" in os.environ:
-                del os.environ["CUDA_VISIBLE_DEVICES"]
-            
+
         except Exception as e:
             self.error = str(e)
             self.is_ready = False
             print(f"❌ Failed to initialize vLLM instance on GPU {self.gpu_id}: {e}")
-            
-            # Restore original CUDA_VISIBLE_DEVICES on error too
-            if original_cuda_devices is not None:
-                os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
-            elif "CUDA_VISIBLE_DEVICES" in os.environ:
-                del os.environ["CUDA_VISIBLE_DEVICES"]
+            # Restore CUDA_VISIBLE_DEVICES if the lock was already acquired but
+            # the exception was raised after the env var was mutated.
+            with _CUDA_ENV_LOCK:
+                if original_cuda_devices is not None:
+                    os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
+                elif "CUDA_VISIBLE_DEVICES" in os.environ:
+                    del os.environ["CUDA_VISIBLE_DEVICES"]
     
     def generate(
         self, 
@@ -180,18 +189,19 @@ class VLLMInstance:
             
             # Generate response
             try:
-                # Set GPU context for this generation
-                original_cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-                os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
-                
-                outputs = self.llm.generate([prompt], sampling_params)
-                
-                # Restore original CUDA_VISIBLE_DEVICES
-                if original_cuda_devices is not None:
-                    os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
-                elif "CUDA_VISIBLE_DEVICES" in os.environ:
-                    del os.environ["CUDA_VISIBLE_DEVICES"]
-                
+                # Serialize CUDA_VISIBLE_DEVICES mutation across generate() calls
+                # from concurrent threads using the module-level lock.
+                with _CUDA_ENV_LOCK:
+                    original_cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+                    os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
+                    try:
+                        outputs = self.llm.generate([prompt], sampling_params)
+                    finally:
+                        if original_cuda_devices is not None:
+                            os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
+                        elif "CUDA_VISIBLE_DEVICES" in os.environ:
+                            del os.environ["CUDA_VISIBLE_DEVICES"]
+
                 if outputs and len(outputs) > 0:
                     generated_text = outputs[0].outputs[0].text
                     return generated_text.strip()
@@ -199,11 +209,6 @@ class VLLMInstance:
                     return ""
                     
             except Exception as e:
-                # Restore original CUDA_VISIBLE_DEVICES on error
-                if original_cuda_devices is not None:
-                    os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_devices
-                elif "CUDA_VISIBLE_DEVICES" in os.environ:
-                    del os.environ["CUDA_VISIBLE_DEVICES"]
                 raise RuntimeError(f"vLLM generation failed on GPU {self.gpu_id}: {e}")
     
     def _format_messages_fallback(self, messages: List[Dict[str, str]]) -> str:
@@ -407,27 +412,16 @@ class MultiVLLMBackend(BaseBackend):
     def is_api_based(self) -> bool:
         """Multi-vLLM backend is local, not API-based."""
         return False
-    
+
     def apply_chat_template(self, conversation: List[Dict[str, str]], add_generation_prompt: bool = True, tokenize: bool = False) -> Optional[str]:
         """
         Apply chat template using the first available instance's tokenizer.
-        
-        Args:
-            conversation: List of conversation messages
-            add_generation_prompt: Whether to add generation prompt
-            tokenize: Whether to tokenize the result
-            
-        Returns:
-            Formatted conversation string or None if not supported
         """
         if not self.instances:
             return None
-        
-        # Use first available instance's tokenizer
         first_instance = next(iter(self.instances.values()))
         if first_instance.tokenizer is None:
             return None
-        
         try:
             return first_instance.tokenizer.apply_chat_template(
                 conversation,
@@ -436,9 +430,21 @@ class MultiVLLMBackend(BaseBackend):
             )
         except Exception:
             return None
-    
-    def __del__(self):
-        """Cleanup resources."""
+
+    def close(self) -> None:
+        """Shut down the thread-pool executor gracefully.  Call this instead of
+        relying on __del__, which is unreliable under GC."""
         self.is_running = False
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False)
+        if hasattr(self, 'executor') and self.executor is not None:
+            self.executor.shutdown(wait=True)
+            self.executor = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        """Best-effort cleanup; prefer calling close() explicitly."""
+        self.close()

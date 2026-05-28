@@ -80,5 +80,6 @@ class TaskMutatorAdapter(Protocol):
         prompt_variant: Any,
         context_variant: Any,
         harness_variant: Any,
+        dag_system_variant: Any = None,
     ) -> List[Dict[str, Any]]:
         ...

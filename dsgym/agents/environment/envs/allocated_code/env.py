@@ -73,6 +73,7 @@ class AllocatedCodeEnv(BaseTextEnv):
             **({"timeout": self.time_out} if self.time_out is not None else {}),
             container_type=self.container_type,
             allocation_timeout=self.allocation_timeout,
+            manager_secret=kwargs.get("manager_secret"),
         )
         
         self.chat_history: ConversationType = []
@@ -108,15 +109,17 @@ class AllocatedCodeEnv(BaseTextEnv):
             self.query = self.extra_info.get("question", "")
         
         # Allocate new container
+        container_allocated = False
         try:
             container_id = self.tool_group.allocate_container()
+            container_allocated = True
             print(f"🔧 Allocated container: {container_id}")
         except Exception as e:
             print(f"⚠️ Warning: Failed to allocate container: {e}")
-        
+
         metadata = {
             "initialized": True,
-            "container_allocated": True,
+            "container_allocated": container_allocated,
             "max_turns": self.max_turns
         }
         
@@ -249,22 +252,29 @@ class AllocatedCodeEnv(BaseTextEnv):
     def reset(self, **kwargs) -> ConversationType:
         """
         Reset environment to initial state.
-        
+
         Args:
             **kwargs: Reset parameters
-            
+
         Returns:
             Initial observations (empty conversation)
         """
         self.turns = 0
         self.chat_history = []
-        
-        # Allocate new container
+
+        # Release the current container before requesting a new one to avoid
+        # leaking an allocated slot that would never be returned to the pool.
+        try:
+            self.tool_group.deallocate_container()
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to deallocate container during reset: {e}")
+
+        # Allocate a fresh container
         try:
             self.tool_group.allocate_container()
         except Exception as e:
             print(f"⚠️ Warning: Failed to allocate container during reset: {e}")
-        
+
         return self.chat_history
     
     def close(self):
@@ -378,10 +388,14 @@ class AllocatedCodeToolGroup:
             causes the request to fail with ``httpx.ReadTimeout`` if no container is
             granted within that window — suitable for lightly loaded environments
             (e.g. dsbio) where a fast failure is preferable over an indefinite wait.
+        manager_secret: Shared secret for protected manager endpoints
+            (POST /deallocate, /restart, /reset).  Falls back to the
+            ``MANAGER_SECRET`` environment variable when not supplied.
     """
     def __init__(self, manager_url: str = "http://localhost:5000", timeout: int = 1800,
                  container_type: Optional[str] = "auto",
-                 allocation_timeout: Optional[float] = None):
+                 allocation_timeout: Optional[float] = None,
+                 manager_secret: Optional[str] = None):
         self.manager_url = manager_url
         self.allocated_container: Optional[int] = None
         self.client = httpx.Client(timeout=timeout)
@@ -392,6 +406,15 @@ class AllocatedCodeToolGroup:
             self.container_type = container_type
         # None = block indefinitely; a number = give up after that many seconds
         self.allocation_timeout = allocation_timeout
+        # Shared secret for protected manager endpoints; read from env if not provided.
+        self._secret: Optional[str] = manager_secret or os.environ.get("MANAGER_SECRET")
+
+    @property
+    def _auth_headers(self) -> dict:
+        """Headers required by protected manager endpoints."""
+        if self._secret:
+            return {"X-Manager-Secret": self._secret}
+        return {}
 
     def allocate_container(self):
         if self.allocated_container is not None:
@@ -406,7 +429,6 @@ class AllocatedCodeToolGroup:
             f"{self.manager_url}/allocate", params=params, timeout=self.allocation_timeout
         )
         response.raise_for_status()
-        response.raise_for_status()
         result = response.json()
         self.allocated_container = result["container_id"]
         return self.allocated_container
@@ -415,7 +437,10 @@ class AllocatedCodeToolGroup:
         if self.allocated_container is None:
             return
 
-        response = self.client.post(f"{self.manager_url}/deallocate/{self.allocated_container}")
+        response = self.client.post(
+            f"{self.manager_url}/deallocate/{self.allocated_container}",
+            headers=self._auth_headers,
+        )
         response.raise_for_status()
         self.allocated_container = None
 

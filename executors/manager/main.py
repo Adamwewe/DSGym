@@ -1,11 +1,39 @@
 import os
 import json
 import asyncio
+import secrets
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# Shared-secret guard for destructive / state-mutating endpoints.
+#
+# Set MANAGER_SECRET in the manager container's environment.  Any request
+# to a protected endpoint must supply the matching value in the
+# X-Manager-Secret header.  If the env var is not set the manager refuses
+# to start rather than silently accepting all requests.
+# ---------------------------------------------------------------------------
+_MANAGER_SECRET: str = os.environ.get("MANAGER_SECRET", "")
+if not _MANAGER_SECRET:
+    import sys
+    print(
+        "FATAL: MANAGER_SECRET environment variable is not set.  "
+        "Set it to a strong random string before starting the manager.  "
+        "Example: MANAGER_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _verify_secret(x_manager_secret: Optional[str] = Header(default=None)) -> None:
+    """FastAPI dependency: reject the request if the secret header is wrong."""
+    if not x_manager_secret or not secrets.compare_digest(
+        x_manager_secret.encode(), _MANAGER_SECRET.encode()
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden: invalid or missing X-Manager-Secret")
 
 class CodeRequest(BaseModel):
     code: str
@@ -171,7 +199,7 @@ async def allocate_container(request: Request, container_type: Optional[str] = N
     return AllocationResponse(container_id=container_id)
 
 @app.post("/deallocate/{container_id}")
-async def deallocate_container(container_id: int):
+async def deallocate_container(container_id: int, _: None = _verify_secret):
     if container_id not in allocated_containers:
         raise HTTPException(status_code=400, detail=f"Container {container_id} is not allocated")
     
@@ -185,7 +213,7 @@ async def deallocate_container(container_id: int):
     return {"status": "deallocated", "container_id": container_id}
 
 @app.post("/restart")
-async def restart_all_allocated_containers():
+async def restart_all_allocated_containers(_: None = _verify_secret):
     """Restart and deallocate all currently allocated containers"""
     if not allocated_containers:
         return {"status": "no_containers_to_restart", "restarted_containers": []}
@@ -237,7 +265,7 @@ async def container_ready(container_id: int):
     return await make_request(ready_check_client, "GET", container_id, "ready")
 
 @app.post("/session/{container_id}/restart")
-async def restart_container(container_id: int):
+async def restart_container(container_id: int, _: None = _verify_secret):
     return await make_request(http_client, "POST", container_id, "restart")
 
 @app.get("/session/{container_id}/restart-status")
@@ -280,7 +308,7 @@ async def get_status():
     }
 
 @app.post("/reset")
-async def reset_all():
+async def reset_all(_: None = _verify_secret):
     """
     Hard-reset manager state without restarting the process.
 

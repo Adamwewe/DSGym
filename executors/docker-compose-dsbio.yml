@@ -1608,6 +1608,7 @@ services:
     environment:
     - PORT=5001
     - CONTAINER_CONFIG_PATH=container_config.json
+    - MANAGER_SECRET=${MANAGER_SECRET}
     volumes:
     - ./container_config_dsbio.json:/app/container_config.json:ro
     depends_on:

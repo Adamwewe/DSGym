@@ -96,6 +96,7 @@ services:
     environment:
     - PORT=5000
     - CONTAINER_CONFIG_PATH=container_config.json
+    - MANAGER_SECRET=${MANAGER_SECRET}
     volumes:
     - ./container_config.json:/app/container_config.json:ro
     depends_on:

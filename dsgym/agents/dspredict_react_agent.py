@@ -67,8 +67,17 @@ class DSPredictReActAgent(ReActDSAgent):
             # Initialize environment
             conversation, _ = env.init(conversation, **extras)
             container_id = env.tool_group.allocated_container
-            
 
+            # Clear any stale submission.csv left by a previous competition that ran
+            # on this container.  The /submission directory is a host-mounted volume
+            # so the file survives the kernel restart that happens on deallocate.
+            if container_id is not None:
+                stale_submission = os.path.join(
+                    self.submission_dir, f"container_{container_id:03d}", "submission.csv"
+                )
+                if os.path.exists(stale_submission):
+                    os.remove(stale_submission)
+                    print(f"🧹 Cleared stale submission from previous competition: {stale_submission}")
             total_tokens = 0
             final_answer = ""
             actual_turns = 0
@@ -123,7 +132,7 @@ class DSPredictReActAgent(ReActDSAgent):
                 env.save_prediction(final_answer, filename_prefix=prefix)
 
             execution_time = time.time() - start_time
-            container_dir = os.path.join(self.submission_dir, f"container_00{container_id}")
+            container_dir = os.path.join(self.submission_dir, f"container_{container_id:03d}")
             submission_file = os.path.join(container_dir, "submission.csv")
             submission_path = ""
             print(f"{submission_file=}")

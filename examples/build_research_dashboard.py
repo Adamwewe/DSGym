@@ -41,6 +41,7 @@ def _build_dataframe(input_dirs: List[Path], labels: List[str] | None = None) ->
                 "prompt_variant": point.prompt_variant,
                 "context_variant": point.context_variant,
                 "harness_variant": point.harness_variant,
+                "dag_system_variant": point.dag_system_variant,
                 "mean_quality": point.mean_quality,
                 "mean_success": point.mean_success,
                 "mean_time": point.mean_time,

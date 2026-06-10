@@ -17,6 +17,7 @@ class ResearchTrialPoint:
     prompt_variant: str
     context_variant: str
     harness_variant: str
+    dag_system_variant: str
     mean_quality: float
     mean_success: float
     mean_time: float
@@ -125,6 +126,7 @@ def load_research_trial_points(input_dirs: List[Path]) -> List[ResearchTrialPoin
                 prompt_variant=str((variants.get("prompt") or {}).get("name", "unknown_prompt")),
                 context_variant=str((variants.get("context") or {}).get("name", "unknown_context")),
                 harness_variant=str((variants.get("harness") or {}).get("name", "unknown_harness")),
+                dag_system_variant=str((variants.get("dag_system") or {}).get("name", "dag_style_baseline")),
                 mean_quality=_safe_float(objectives.get("mean_quality_score", _mean(quality_values))),
                 mean_success=_safe_float(objectives.get("mean_success_rate", _mean(success_values))),
                 mean_time=_safe_float(objectives.get("mean_execution_time", _mean(time_values))),

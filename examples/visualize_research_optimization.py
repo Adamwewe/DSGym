@@ -36,6 +36,7 @@ def _build_dataframe(input_dirs: List[Path], labels: List[str] | None = None) ->
                 "prompt_variant": point.prompt_variant,
                 "context_variant": point.context_variant,
                 "harness_variant": point.harness_variant,
+                "dag_system_variant": point.dag_system_variant,
                 "mean_quality": point.mean_quality,
                 "mean_success": point.mean_success,
                 "mean_time": point.mean_time,
@@ -146,6 +147,53 @@ def _write_model_comparison(df: pd.DataFrame, out_path: Path) -> None:
     summary.to_csv(out_path, index=False)
 
 
+def _plot_dag_style_comparison(df: pd.DataFrame, out_path: Path) -> None:
+    """Box-plot each key metric broken down by dag_system_variant.
+
+    This is the primary plot for understanding which DAG instruction style
+    (baseline full-format, reasoning-only, generic-plan, or minimal) drives
+    the best agent performance.
+    """
+    if "dag_system_variant" not in df.columns or df["dag_system_variant"].nunique() < 2:
+        return
+
+    style_order = [
+        "dag_style_baseline",
+        "dag_style_reasoning_only",
+        "dag_style_generic_plan",
+        "dag_style_minimal",
+    ]
+    present = [s for s in style_order if s in df["dag_system_variant"].values]
+    present += [s for s in df["dag_system_variant"].unique() if s not in style_order]
+
+    metrics: List[Tuple[str, str]] = [
+        ("mean_quality", "Quality score (↑)"),
+        ("dag_help_delta", "DAG help delta (↑)"),
+        ("mean_compliance", "Harness compliance (↑)"),
+        ("mean_turns", "Turns (↓)"),
+    ]
+
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 6))
+    if len(metrics) == 1:
+        axes = [axes]
+
+    for ax, (col, title) in zip(axes, metrics):
+        data = [df[df["dag_system_variant"] == style][col].dropna().values for style in present]
+        bp = ax.boxplot(data, patch_artist=True, labels=[s.replace("dag_style_", "") for s in present])
+        colours = ["#4878CF", "#6ACC65", "#D65F5F", "#B47CC7"]
+        for patch, colour in zip(bp["boxes"], colours):
+            patch.set_facecolor(colour)
+            patch.set_alpha(0.7)
+        ax.set_title(title, fontsize=11)
+        ax.tick_params(axis="x", rotation=20)
+        ax.grid(axis="y", alpha=0.25)
+
+    fig.suptitle("DAG instruction style comparison", fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Visualize research optimization outputs across runs/models")
     parser.add_argument(
@@ -184,6 +232,7 @@ def main() -> int:
     _plot_quality_time_pareto(df, output_dir / "pareto_quality_time.png")
     _plot_accuracy_time(df, output_dir / "accuracy_vs_time.png")
     _plot_metric_boxplots(df, output_dir / "run_metric_boxplots.png")
+    _plot_dag_style_comparison(df, output_dir / "dag_style_comparison.png")
 
     print(f"Wrote flattened trials: {csv_path}")
     print(f"Wrote figures to: {output_dir}")

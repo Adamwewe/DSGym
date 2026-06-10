@@ -48,6 +48,15 @@ def add_eval_parser(subparsers):
                             "When true, the agent self-generates and revises its analysis plan. "
                             "When false (default), uses the standard system prompt for baseline comparison. "
                             "Accepts true/false.")
+    parser.add_argument("--prompt-variant", type=str, default="structured",
+                       choices=["lightweight", "structured", "reasoning-only", "reasoning-focused",
+                               "reasoning-implementation-strict", "detailed", "adaptive-revision", "expert-agentic"],
+                       help="Prompt variant to use for system prompts. "
+                            "lightweight: minimal guidance; structured: standard format; "
+                            "reasoning-only: strict reasoning DAG; reasoning-focused: reasoning primary; "
+                            "reasoning-implementation-strict: both DAGs required; detailed: rich guidance; "
+                            "adaptive-revision: adaptive planning with up to 5 revisions; "
+                            "expert-agentic: 2026 best practices with agentic loop.")
     parser.add_argument("--sample-n", type=int, default=None, metavar="N",
                        help="(DSBio/DSPredict) Randomly sample N tasks from the source split and save "
                             "as dsbio_sampled.json / dspredict_sampled.json before evaluating. "
@@ -94,6 +103,7 @@ def run_eval(args) -> int:
     print(f"Backend: {args.backend}")
     print(f"Dataset: {args.dataset}")
     print(f"Samples: {args.limit if args.limit is not None else 'all'}")
+    print(f"Prompt variant: {args.prompt_variant}")
 
     is_dsbio = args.dataset in ("dsbio", "dsbio-sampled")
     is_dspredict = "dspredict" in args.dataset

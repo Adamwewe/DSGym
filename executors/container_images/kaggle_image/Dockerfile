@@ -21,8 +21,8 @@ EXPOSE 8432
 COPY requirements.kaggle.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Create submission directory and set ownership
-RUN mkdir -p /submission && chown -R appuser:appuser /submission /app
+# Create submission directory and set permissions
+RUN mkdir -p /submission
 RUN chmod -R 777 /submission /app
 
 # Switch to non-root user

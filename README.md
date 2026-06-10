@@ -96,6 +96,32 @@ sudo docker compose -f docker-dspredict-apple.yml up -d
 sudo docker compose -f docker-dspredict-apple.yml down
 ```
 
+> ⚠️ **Gotcha: Data mount path resolution**
+>
+> `generate_compose.py` embeds the `-m` path **literally** into the generated compose file.
+> Docker Compose then resolves relative paths **relative to the compose file's location**, not
+> relative to wherever `generate_compose.py` was run.
+>
+> The instructions above run `generate_compose.py` from `executors/`, so `-m ../data/data`
+> resolves correctly at generation time. But when Docker Compose reads the generated file
+> (which lives in the project root), it re-resolves `../data/data` relative to the project
+> root — pointing **one level too high** to an empty directory. Agents will start but see no
+> data, producing 35/35 no-submit runs with `FileNotFoundError`.
+>
+> **Fix:** always pass an absolute path to `-m`:
+> ```bash
+> python generate_compose.py -n 8 --types "executor-kaggle-apple:8" \
+>   -m /absolute/path/to/DSGym/data/data \
+>   --output ../docker-dspredict-apple.yml ...
+> ```
+>
+> **Check:** after `docker compose up`, verify data is visible inside a container:
+> ```bash
+> docker exec $(docker ps -q --filter "name=executor" | head -1) ls /data/
+> # Should list: dspredict-sampled  bio  dabstep  ...
+> # Empty output = wrong mount path
+> ```
+
 ### 3. Run Evaluations
 
 #### Using CLI

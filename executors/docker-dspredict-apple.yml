@@ -11,7 +11,7 @@ services:
     - HOST_PORT=60000
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -39,7 +39,7 @@ services:
     - HOST_PORT=60001
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -67,7 +67,7 @@ services:
     - HOST_PORT=60002
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -95,7 +95,7 @@ services:
     - HOST_PORT=60003
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -123,7 +123,7 @@ services:
     - HOST_PORT=60004
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -151,7 +151,7 @@ services:
     - HOST_PORT=60005
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -179,7 +179,7 @@ services:
     - HOST_PORT=60006
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -207,7 +207,7 @@ services:
     - HOST_PORT=60007
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=900
+    - EXECUTION_TIMEOUT=3600
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped

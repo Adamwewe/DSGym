@@ -151,8 +151,8 @@ class LiteLLMBackend(BaseBackend):
                 content = response.choices[0].message.content
                 return content if content is not None else ""
 
-            except litellm.ContextWindowExceededError:
-                # Retrying won't help — the payload is too large. Raise immediately.
+            except (litellm.ContextWindowExceededError, litellm.BadRequestError):
+                # Retrying won't help for size/bad-request errors. Raise immediately.
                 raise
             except Exception as e:
                 if attempt == self.max_retries - 1:

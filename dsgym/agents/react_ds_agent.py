@@ -39,6 +39,45 @@ class ReActDSAgent(BaseAgent):
         self.max_turns = kwargs.get('max_turns', 15)
         self.output_dir = kwargs.get('output_dir', './outputs')
         self.container_type = kwargs.get('container_type', 'auto')
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _is_size_error(self, e: Exception) -> bool:
+        """Return True when the error is caused by the request being too large."""
+        err_str = str(e).lower()
+        err_type = type(e).__name__.lower()
+        return "request_too_large" in err_str or "contextwindow" in err_type
+
+    def _prune_conversation(self, conversation: List[Dict[str, str]], keep_recent: int = 8) -> List[Dict[str, str]]:
+        """
+        Reduce conversation size by dropping the oldest complete turns.
+
+        Always keeps:
+          - messages[0]: system prompt
+          - messages[1]: initial user task description
+          - The most recent ``keep_recent`` messages
+
+        Middle turns are replaced with a placeholder so the model knows history
+        was truncated. Content within retained messages is never cut.
+        """
+        MIN_HEAD = 2
+        if len(conversation) <= MIN_HEAD + keep_recent:
+            return conversation
+
+        head = conversation[:MIN_HEAD]
+        tail = conversation[-keep_recent:]
+        dropped = len(conversation) - MIN_HEAD - keep_recent
+        placeholder = {
+            "role": "user",
+            "content": (
+                f"[{dropped} earlier turn(s) omitted to reduce request size. "
+                "Variables and files produced in those turns are still available "
+                "in the execution environment.]"
+            ),
+        }
+        return head + [placeholder] + tail
     
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -83,35 +122,59 @@ class ReActDSAgent(BaseAgent):
             actual_turns = 0
             
             for turn in range(self.max_turns):
+                # --- Generate LLM response ---
+                response = None
                 try:
-                    # Generate response
                     response = self.backend_instance.generate(conversation)
-                    
-                    # Count tokens (approximate)
-                    total_tokens += len(response.split())
-                    
-                    # Step environment
-                    step_output = env.step(response)
-                    actual_turns = turn + 1
-                    
-                    # Update conversation - add assistant response and new observations
-                    conversation.append({"role": "assistant", "content": step_output.get('postprocessed_action', response)})
-                    if step_output['observations']:
-                        conversation.extend(step_output['observations'])
+                except Exception as gen_error:
+                    if self._is_size_error(gen_error):
+                        # Drop oldest turn pair(s) and retry once — never add the
+                        # size error itself to the (already too large) conversation.
+                        pruned = self._prune_conversation(conversation)
+                        if len(pruned) < len(conversation):
+                            print(f"⚠️ Turn {turn + 1}: request too large, pruned "
+                                  f"{len(conversation) - len(pruned)} message(s), retrying…")
+                            try:
+                                response = self.backend_instance.generate(pruned)
+                            except Exception as retry_err:
+                                print(f"⚠️ Turn {turn + 1} failed after pruning: {retry_err}")
+                                break
+                        else:
+                            print(f"⚠️ Turn {turn + 1}: request too large and cannot prune further, stopping.")
+                            break
                     else:
-                        print(f"Step output: {step_output}")
-                    # Check if task is complete
-                    if step_output['done']:
-                        final_answer = step_output['metadata'].get('final_answer', response)
-                        break
-                        
+                        error_msg = f"Turn {turn + 1} failed: {gen_error}"
+                        print(f"⚠️ {error_msg}")
+                        conversation.append({"role": "user", "content": f"Error: {error_msg}. Please try a different approach."})
+                        continue
+
+                if response is None:
+                    break
+
+                # Count tokens (approximate)
+                total_tokens += len(response.split())
+
+                # --- Step environment ---
+                try:
+                    step_output = env.step(response)
                 except Exception as e:
-                    error_msg = f"Turn {turn + 1} failed: {e}"
+                    error_msg = f"Turn {turn + 1} env step failed: {e}"
                     print(f"⚠️ {error_msg}")
-                    
-                    # Add error to conversation for recovery
                     conversation.append({"role": "user", "content": f"Error: {error_msg}. Please try a different approach."})
                     continue
+
+                actual_turns = turn + 1
+                
+                # Update conversation - add assistant response and new observations
+                conversation.append({"role": "assistant", "content": step_output.get('postprocessed_action', response)})
+                if step_output['observations']:
+                    conversation.extend(step_output['observations'])
+                else:
+                    print(f"Step output: {step_output}")
+                # Check if task is complete
+                if step_output['done']:
+                    final_answer = step_output['metadata'].get('final_answer', response)
+                    break
             
 
             # Check if this is part of trajectory generation

@@ -83,7 +83,44 @@ sudo docker build -t manager-prebuilt ./manager
 sudo docker compose -f docker-dspredict-hard.yml up -d --build
 
 sudo docker compose -f docker-dspredict-hard.yml down
+
+# DSPredict on Apple Silicon (M-series, no GPU)
+sudo docker build -t executor-kaggle-apple -f ./container_images/kaggle_image/Dockerfile.apple ./container_images/kaggle_image
+sudo docker build -t manager-prebuilt ./manager
+
+python generate_compose.py -n 8 --types "executor-kaggle-apple:8" -m ../data/data --output docker-dspredict-apple.yml \
+  -c container_config_dspredict_hard.json -s ../submissions \
+  -e "EXECUTION_TIMEOUT=3600,MEM_LIMIT=24G,CPUS=8" --apple-silicon
+
+sudo docker compose -f docker-dspredict-apple.yml up -d
+sudo docker compose -f docker-dspredict-apple.yml down
 ```
+
+> ⚠️ **Gotcha: Data mount path resolution**
+>
+> `generate_compose.py` embeds the `-m` path **literally** into the generated compose file.
+> Docker Compose then resolves relative paths **relative to the compose file's location**, not
+> relative to wherever `generate_compose.py` was run.
+>
+> The instructions above run `generate_compose.py` from `executors/`, so `-m ../data/data`
+> resolves correctly at generation time. But when Docker Compose reads the generated file
+> (which lives in the project root), it re-resolves `../data/data` relative to the project
+> root — pointing **one level too high** to an empty directory. Agents will start but see no
+> data, producing 35/35 no-submit runs with `FileNotFoundError`.
+>
+> **Fix:** always pass an absolute path to `-m`:
+> ```bash
+> python generate_compose.py -n 8 --types "executor-kaggle-apple:8" \
+>   -m /absolute/path/to/DSGym/data/data \
+>   --output ../docker-dspredict-apple.yml ...
+> ```
+>
+> **Check:** after `docker compose up`, verify data is visible inside a container:
+> ```bash
+> docker exec $(docker ps -q --filter "name=executor" | head -1) ls /data/
+> # Should list: dspredict-sampled  bio  dabstep  ...
+> # Empty output = wrong mount path
+> ```
 
 ### 3. Run Evaluations
 
@@ -207,6 +244,7 @@ DSGym provides a unified CLI interface:
 #### Available Commands
 
 - **`dsgym eval`**: Evaluate models on datasets
+- **`dsgym resubmit`**: Re-score saved DSPredict submissions against Kaggle without re-running agents
 - **`dsgym generate`**: Generate trajectories for synthetic data (coming soon)
 - **`dsgym train`**: Train models (coming soon)
 
@@ -239,10 +277,34 @@ dsgym eval \
 ├── {run_name}_summary.csv        # CSV for easy analysis
 ├── {run_name}_metrics.json       # Aggregated metrics
 ├── {run_name}_config.json        # Evaluation configuration
+├── {challenge}_{index}_{model}_{dags|nodags}.json  # Per-task checkpoint (see below)
 └── dags/                         # DAG artifacts (DSBio --dags true only)
     ├── 0_dags.json               # reasoning + implementation DAGs for sample 0
     ├── 1_dags.json               # reasoning + implementation DAGs for sample 1
     └── ...
+```
+
+#### Per-task Checkpoints (Intermediate Results)
+
+Every time a task finishes the evaluator immediately writes a per-task checkpoint
+file in addition to the aggregate results files:
+
+```
+{output_dir}/{challenge_name}_{index}_{model_slug}_{dags|nodags}.json
+# e.g. mens-machine-learning-competition-2018_31_claude_sonnet_4_5_dags.json
+```
+
+Each file contains the full `EvaluationResult` payload — prediction path,
+metrics, trajectory, execution time — so you can recover partial results even
+if the run does not complete.
+
+To load partial results in `analysis.ipynb` use the helper added to that
+notebook:
+
+```python
+dp_data[("claude-sonnet-4-6", "dags")] = load_dspredict_from_intermediate(
+    "*_claude_sonnet_4_6_dags.json"
+)
 ```
 
 ## Supported Datasets
@@ -483,6 +545,242 @@ dsgym eval --dataset dsbio-sampled --dags true --model gpt-4o
 
 # 4. Recreate sample with a different seed
 dsgym eval --dataset dsbio --sample-n 20 --sample-seed 7 --dags true --model claude-sonnet-4-6
+```
+
+## DAG Generation for DSPredict
+
+DSPredict tasks support the same iterative DAG-guided reasoning as DSBio. Before
+writing any code the agent emits two self-contained DAGs — a high-level
+**ReasoningDAG** (competition analysis decisions) and a concrete **ImplementationDAG**
+(step-by-step ML pipeline) — and follows them, revising inline on failures.
+
+### CLI flags (DSPredict)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dags true\|false` | `false` | Enable DAG-guided prompts for DSPredict |
+| `--dag-model MODEL` | `gpt-4o` | Model used for post-hoc DAG generation (Python API only) |
+
+```bash
+# Baseline (no DAGs)
+dsgym eval --dataset dspredict-hard --dags false --model gpt-4o
+
+# DAG-guided run
+dsgym eval --dataset dspredict-hard --dags true --model gpt-4o
+
+# DAG-guided run on a subsample (see below)
+dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+```
+
+### Python API
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dspredict")
+
+# DAG system prompt injected automatically — no upfront API calls
+samples = dataset.load(split="hard", limit=10, generate_dags=True)
+
+# Post-hoc DAG generation for a loaded sample
+reasoning = dataset.generate_dag(samples[0], dag_type="reasoning", model="gpt-4o")
+impl = dataset.generate_dag(
+    samples[0], dag_type="implementation", reasoning_dag=reasoning, model="gpt-4o"
+)
+
+# Or both in one call
+dags = dataset.generate_dags(samples[0], model="gpt-4o")
+print(dags["reasoning"].model_dump_json(indent=2))
+print(dags["implementation"].model_dump_json(indent=2))
+```
+
+## Subsampling DSPredict
+
+DSPredict has three splits (`easy`, `hard`, `lite`). The same subsampling helpers
+available for DSBio are also available here.
+
+### Creating a subsample
+
+**CLI** (`--sample-n` / `--sample-seed`):
+
+```bash
+# Sample 5 tasks from the hard split, save as dspredict_sampled.json, evaluate with DAGs
+dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+
+# Reproducible with a different seed
+dsgym eval --dataset dspredict-hard --sample-n 5 --sample-seed 7 --dags true --model gpt-4o
+```
+
+**Python API:**
+
+```python
+from dsgym.datasets import DatasetRegistry
+
+dataset = DatasetRegistry.load("dspredict")
+
+# Creates data/task/dspredict/dspredict_sampled.json
+dataset.create_sample(n=5, split="hard", seed=42)
+
+# Or sample from the easy split
+dataset.create_sample(n=10, split="easy", seed=42)
+```
+
+### Evaluating on an existing subsample
+
+```bash
+# Baseline (no DAGs) — same 5 tasks, no resampling
+dsgym eval --dataset dspredict-sampled --dags false --model gpt-4o
+
+# DAG-guided run with a different model on the same sample
+dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
+```
+
+**Python API:**
+
+```python
+samples = DatasetRegistry.load("dspredict").load(split="sampled")
+```
+
+### Typical workflows
+
+```bash
+# 1. Create sample + DAG run (first time)
+dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+
+# 2. Baseline comparison on the same tasks
+dsgym eval --dataset dspredict-sampled --dags false --model gpt-4o
+
+# 3. DAG run with a different model on the same sample
+dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
+
+# 4. Recreate sample with a different seed
+dsgym eval --dataset dspredict-hard --sample-n 5 --sample-seed 7 --dags true --model gpt-4o
+```
+
+## Re-submitting DSPredict Results (`dsgym resubmit`)
+
+If a DSPredict evaluation run times out or is interrupted, the per-task
+checkpoint files are still on disk. `dsgym resubmit` reads those files,
+re-submits each saved `submission.csv` to Kaggle, and writes the scored
+metrics back into the checkpoint files — without re-running any agents.
+
+### Basic usage
+
+```bash
+# Re-score all claude-sonnet-4-5 DAG checkpoints in the default output directory
+dsgym resubmit --pattern "*_claude_sonnet_4_5_dags.json"
+
+# Use a specific directory and a longer per-submission timeout
+dsgym resubmit \
+    --input-dir ./evaluation_results \
+    --pattern "*_dags.json" \
+    --timeout 20
+
+# Force re-score even checkpoints that already have a score
+dsgym resubmit --pattern "*_dags.json" --no-skip-scored
+
+# Dry-run: show which files would be submitted without uploading
+dsgym resubmit --pattern "*_dags.json" --dry-run
+```
+
+### All options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--input-dir` | `./evaluation_results` | Directory containing checkpoint JSON files |
+| `--pattern` | `*.json` | Glob pattern for checkpoint files (use a specific model/run pattern) |
+| `--timeout` | `10` | Minutes to wait for each Kaggle submission to be scored |
+| `--max-workers` | `1` | Parallel submissions. Default is 1 (sequential) — see note below |
+| `--skip-scored` | `True` | Skip files that already have a non-null score |
+| `--no-skip-scored` | — | Re-submit even already-scored checkpoints |
+| `--dry-run` | `False` | Print what would be submitted without uploading |
+
+### Upload speed and parallelism
+
+DSPredict submission files can be large (50–400 MB). At a typical upload speed
+of 8 Mbps (1 MB/s), a 400 MB file takes ~6–7 minutes to upload.
+
+`--max-workers` defaults to **1** (sequential). This is intentional: running
+multiple uploads in parallel splits your available upload bandwidth between them,
+making each one slower without any real throughput gain. Only increase
+`--max-workers` on fast connections (100+ Mbps).
+
+Upload progress is printed as the file transfers:
+
+```
+⬆️  Uploading ashrae-energy-prediction_submission.csv (51.0 MB) to ashrae-energy-prediction…
+  … 10.2 / 51.0 MB  (20%)
+  … 20.5 / 51.0 MB  (40%)
+  …
+✅ Upload complete: 51.0 MB in 51s (1.0 MB/s)
+```
+
+### Retry behaviour
+
+The submission pipeline automatically retries on transient failures
+(broken connections, rate limits, timeouts). Each retry creates a **fresh
+Kaggle API client** with a new connection pool, which is the root cause fix for
+`BrokenPipeError` — stale HTTP connections in `KaggleClient` were silently
+failing on subsequent API calls after the first connection dropped.
+
+Uploads use `requests` (not `httpx`) with a file-like body so that urllib3
+honours the `Content-Length` header and never adds `Transfer-Encoding: chunked`.
+Sending both headers simultaneously caused GCS to reset the connection near the
+end of large uploads. TCP keepalive (30s probe interval) is also enabled on the
+upload socket to prevent NAT/firewall table expiry during slow transfers.
+
+| Stage | Retries | Behaviour |
+|---|---|---|
+| File upload (PUT to GCS presigned URL) | 5 (outer) | New `KaggleClient` per attempt; 20s–30s jittered backoff |
+| Score polling (`GetSubmission`) | Continuous until timeout | Jittered 30 ± 10s interval; transient errors logged and retried |
+
+Parallel workers use a random initial delay (5–20s) before their first poll so
+they don't all hit the Kaggle API simultaneously.
+
+### Submission format validation
+
+Before a file is uploaded to Kaggle the agent automatically validates the
+generated `submission.csv` against the local `sample_submission.csv`:
+
+- **Missing required columns** — e.g. column expected by Kaggle is absent
+- **Extra/unexpected columns** — columns not present in the sample
+- **Wrong row count** — number of rows doesn't match the sample
+
+If errors are found the framework injects a detailed error message back into the
+agent's conversation and gives it up to **5 extra turns** to fix the file.
+After each fix turn the file is re-validated. If all fix turns are exhausted the
+file is uploaded anyway (rather than losing the result entirely) and the
+`error_description` returned by Kaggle is printed and stored in the checkpoint.
+
+The validation snippet is also included in both agent system prompts so the
+agent validates its own output before finishing:
+
+```python
+import pandas as pd
+sample = pd.read_csv('/data/dspredict-sampled/<challenge>/sample_submission.csv')
+sub    = pd.read_csv('/submission/submission.csv')
+assert list(sub.columns) == list(sample.columns), f"Column mismatch: {list(sample.columns)}"
+assert len(sub) == len(sample), f"Row count mismatch: expected {len(sample)}, got {len(sub)}"
+print("Format OK")
+```
+
+### Typical recovery workflow
+
+```bash
+# 1. A DSPredict run times out part-way through — checkpoints are on disk
+dsgym eval --dataset dspredict-sampled --dags true --model claude-sonnet-4-6
+#    → times out after 20/35 tasks; 20 checkpoint files are saved
+
+# 2. Re-score the checkpoints that completed (skips already-scored ones)
+dsgym resubmit \
+    --input-dir ./evaluation_results \
+    --pattern "*_claude_sonnet_4_6_dags.json"
+
+# 3. Load partial results in analysis.ipynb
+#    Use load_dspredict_from_intermediate() (already in the notebook):
+#    dp_data[("claude-sonnet-4-6", "dags")] = load_dspredict_from_intermediate(
+#        "*_claude_sonnet_4_6_dags.json"
+#    )
 ```
 
 ## Key Innovations

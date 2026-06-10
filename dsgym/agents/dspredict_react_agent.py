@@ -23,8 +23,7 @@ class DSPredictReActAgent(ReActDSAgent):
 
         self.submission_dir = kwargs.get('submission_dir', '')
         # Optional HTTP client timeout (seconds) for code execution manager
-        self.time_out = kwargs.get('time_out')
-        self.time_out = 60
+        self.time_out = kwargs.get('time_out', 1800)
 
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -62,21 +61,32 @@ class DSPredictReActAgent(ReActDSAgent):
                 max_turns=self.max_turns,
                 output_dir=self.output_dir,
                 time_out=self.time_out,
+                container_type=self.container_type,
             )
 
             # Initialize environment
             conversation, _ = env.init(conversation, **extras)
             container_id = env.tool_group.allocated_container
-            
 
+            # Clear any stale submission.csv left by a previous competition that ran
+            # on this container.  The /submission directory is a host-mounted volume
+            # so the file survives the kernel restart that happens on deallocate.
+            if container_id is not None:
+                stale_submission = os.path.join(
+                    self.submission_dir, f"container_{container_id:03d}", "submission.csv"
+                )
+                if os.path.exists(stale_submission):
+                    os.remove(stale_submission)
+                    print(f"🧹 Cleared stale submission from previous competition: {stale_submission}")
             total_tokens = 0
             final_answer = ""
             actual_turns = 0
 
             for turn in range(self.max_turns):
                 try:
-                    # Generate response
-                    response = self.backend_instance.generate(conversation)
+                    # Generate response (prune history first to stay within context)
+                    pruned = self._prune_conversation(conversation)
+                    response = self.backend_instance.generate(pruned)
 
                     # Step environment
                     step_start = time.time()
@@ -122,14 +132,92 @@ class DSPredictReActAgent(ReActDSAgent):
                 env.save_prediction(final_answer, filename_prefix=prefix)
 
             execution_time = time.time() - start_time
-            container_dir = os.path.join(self.submission_dir, f"container_00{container_id}")
+            # # Re-read in case late allocation inside execute_code() set it after init failed
+            # container_id = env.tool_group.allocated_container
+            # if container_id is None:
+            #     print("⚠️  No container was ever allocated — cannot locate submission file")
+            #     return {
+            #         "solution": "",
+            #         "success": False,
+            #         "turns": actual_turns,
+            #         "error": "Container allocation failed — no submission file available",
+            #         "metadata": {
+            #             "model": self.model,
+            #             "backend": self.backend,
+            #             "dspredict": True,
+            #             "max_turns": self.max_turns,
+            #             "total_tokens": total_tokens,
+            #             "execution_time": execution_time,
+            #             "conversation_length": len(conversation),
+            #         },
+            #         "conversation": conversation,
+            #         "trajectory": trajectory,
+            #         "raw_result": None,
+            #     }
+            container_dir = os.path.join(self.submission_dir, f"container_{container_id:03d}")
             submission_file = os.path.join(container_dir, "submission.csv")
             submission_path = ""
             print(f"{submission_file=}")
             success = False
             if os.path.exists(submission_file):
-                success = True
                 challenge_name = sample.get("extra_info", {}).get("challenge_name", "")
+
+                # ── submission format validation ──────────────────────────────
+                # Check the generated CSV against sample_submission.csv on the
+                # host.  If format errors are found, inject them back into the
+                # conversation and give the agent up to 5 extra turns to fix
+                # the file before we accept it.
+                try:
+                    from dsgym.eval.metrics.dspredict.dspredict_metric import _validate_submission
+                    MAX_FIX_TURNS = 5
+                    for fix_attempt in range(MAX_FIX_TURNS + 1):
+                        errors = _validate_submission(submission_file, challenge_name)
+                        if not errors:
+                            break  # submission is valid
+                        if fix_attempt == MAX_FIX_TURNS:
+                            print(f"⚠️  Submission still invalid after {MAX_FIX_TURNS} fix turns — uploading anyway")
+                            break
+
+                        error_lines = "\n".join(f"  - {e}" for e in errors)
+                        print(f"⚠️  submission.csv format errors (fix attempt {fix_attempt + 1}):\n{error_lines}")
+                        fix_msg = (
+                            f"Your submission.csv has format errors that Kaggle will reject:\n{error_lines}\n\n"
+                            f"The expected format is defined in "
+                            f"/data/dspredict-sampled/{challenge_name}/sample_submission.csv inside the container.\n"
+                            f"Fix the column names and/or row count, overwrite submission.csv, and confirm it matches "
+                            f"the sample exactly (same columns, same number of rows)."
+                        )
+                        conversation.append({"role": "user", "content": fix_msg})
+
+                        # Run one more agent turn to fix the file
+                        try:
+                            pruned = self._prune_conversation(conversation)
+                            response = self.backend_instance.generate(pruned)
+                            step_output = env.step(response)
+                            actual_turns += 1
+                            conversation.append({
+                                "role": "assistant",
+                                "content": step_output.get("postprocessed_action", response),
+                            })
+                            trajectory = self.append_traj(
+                                trajectory, actual_turns, "assistant", response,
+                                step_output.get("done", False), step_output.get("reward", 0.0), 0.0
+                            )
+                            if step_output.get("observations"):
+                                conversation.extend(step_output["observations"])
+                                trajectory = self.append_traj(
+                                    trajectory, actual_turns, "user",
+                                    step_output["observations"][0]["content"],
+                                    step_output.get("done", False), step_output.get("reward", 0.0), 0.0
+                                )
+                        except Exception as fix_err:
+                            print(f"Fix turn {fix_attempt + 1} execution error: {fix_err}")
+                            break
+                except Exception as val_err:
+                    print(f"⚠️  Could not run submission validation: {val_err}")
+                # ─────────────────────────────────────────────────────────────
+
+                success = True
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 unique_name = f"{challenge_name}_{container_id}_{timestamp}_submission.csv"
                 unique_path = os.path.join(container_dir, unique_name)
@@ -199,3 +287,30 @@ class DSPredictReActAgent(ReActDSAgent):
             "step_time": step_time,
         })
         return trajectory
+
+    def _prune_conversation(self, conversation: List[Dict[str, Any]], keep_recent: int = 20) -> List[Dict[str, Any]]:
+        """
+        Trim the conversation to avoid context-window overflow.
+
+        Always keeps:
+          - messages[0]: system prompt
+          - messages[1]: initial user task description
+          - The most recent ``keep_recent`` messages
+
+        Middle turns (verbose code outputs from early steps) are dropped with a
+        placeholder so the model knows history was truncated.
+        """
+        if len(conversation) <= keep_recent + 2:
+            return conversation
+
+        head = conversation[:2]
+        tail = conversation[-keep_recent:]
+        dropped = len(conversation) - 2 - keep_recent
+        placeholder = {
+            "role": "user",
+            "content": (
+                f"[{dropped} earlier turn(s) omitted to stay within the context window. "
+                "Variables and files produced in those turns are still available in the execution environment.]"
+            ),
+        }
+        return head + [placeholder] + tail

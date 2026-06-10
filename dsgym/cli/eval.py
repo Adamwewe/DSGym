@@ -38,20 +38,20 @@ def add_eval_parser(subparsers):
     
     # Dataset configuration
     parser.add_argument("--dataset", type=str, required=True,
-                       choices=["daeval", "discoverybench", "qrdata", "dabstep", "dspredict-easy", "dspredict-hard", "dsbio", "dsbio-sampled"],
-                       help="Dataset to evaluate on. Use 'dsbio-sampled' to evaluate on a previously created sample.")
+                       choices=["daeval", "discoverybench", "qrdata", "dabstep", "dspredict-easy", "dspredict-hard", "dspredict-sampled", "dsbio", "dsbio-sampled"],
+                       help="Dataset to evaluate on. Use 'dsbio-sampled' or 'dspredict-sampled' to evaluate on a previously created sample.")
     parser.add_argument("--limit", type=int, default=None,
                        help="Number of samples to evaluate")
     parser.add_argument("--dags", type=lambda x: x.lower() not in ("false", "0", "no"),
                        default=False, metavar="BOOL",
-                       help="Enable iterative DAG-guided reasoning for DSBio. "
+                       help="Enable iterative DAG-guided reasoning for DSBio and DSPredict. "
                             "When true, the agent self-generates and revises its analysis plan. "
                             "When false (default), uses the standard system prompt for baseline comparison. "
                             "Accepts true/false.")
     parser.add_argument("--sample-n", type=int, default=None, metavar="N",
-                       help="(DSBio only) Randomly sample N tasks from the hard split and save as "
-                            "dsbio_sampled.json before evaluating. The saved file can be reused "
-                            "across runs via --dataset dsbio-sampled.")
+                       help="(DSBio/DSPredict) Randomly sample N tasks from the source split and save "
+                            "as dsbio_sampled.json / dspredict_sampled.json before evaluating. "
+                            "The saved file can be reused via --dataset dsbio-sampled / dspredict-sampled.")
     parser.add_argument("--sample-seed", type=int, default=42,
                        help="Random seed for --sample-n (default: 42)")
     parser.add_argument("--synthetic-path", type=str, default=None,
@@ -89,7 +89,8 @@ def run_eval(args) -> int:
     print(f"Samples: {args.limit if args.limit is not None else 'all'}")
 
     is_dsbio = args.dataset in ("dsbio", "dsbio-sampled")
-    if is_dsbio:
+    is_dspredict = "dspredict" in args.dataset
+    if is_dsbio or is_dspredict:
         mode = "iterative DAG" if args.dags else "standard (no DAG)"
         print(f"System prompt mode: {mode}")
 
@@ -114,6 +115,11 @@ def run_eval(args) -> int:
         "temperature": args.temperature,
         "output_dir": args.output_dir,
     }
+
+    # DSBio requires no GPU workloads, so skip Apple Silicon / Darwin platform
+    # detection and let the manager allocate any available container.
+    if is_dsbio:
+        agent_config["container_type"] = None
 
     if args.backend == "litellm" and args.api_key:
         agent_config["api_key"] = args.api_key
@@ -148,11 +154,19 @@ def run_eval(args) -> int:
         dataset_name = args.dataset
 
         if "dspredict" in dataset_name:
-            dataset_config["split"] = dataset_name.split("-")[-1]
-            dataset_name = dataset_name.split("-")[0]
+            # Parse split: dspredict-easy → "easy", dspredict-sampled → "sampled"
+            split = dataset_name.split("-", 1)[-1]  # "easy", "hard", "sampled", …
             dataset_config["virtual_data_root"] = "/data"
-            load_config["split"] = dataset_config["split"]
+            load_config["split"] = split
+            load_config["generate_dags"] = args.dags
+            dataset_name = "dspredict"
             dataset = DatasetRegistry.load(dataset_name, **dataset_config)
+
+            # --sample-n: create dspredict_sampled.json from the specified split, then evaluate on it
+            if args.sample_n is not None:
+                source_split = split if split != "sampled" else "hard"
+                dataset.create_sample(n=args.sample_n, split=source_split, seed=args.sample_seed)
+                load_config["split"] = "sampled"
 
         elif dataset_name in ("dsbio", "dsbio-sampled"):
             dataset_config["virtual_data_root"] = "/data"
@@ -191,7 +205,7 @@ def run_eval(args) -> int:
 
     # Create evaluation config
     run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
-    if is_dsbio and not args.run_name:
+    if (is_dsbio or is_dspredict) and not args.run_name:
         run_name += "_dags" if args.dags else "_nodags"
     config = EvaluationConfig(
         model_name=args.model,
@@ -202,7 +216,7 @@ def run_eval(args) -> int:
         max_turns=args.max_turns,
         temperature=args.temperature,
         max_workers=args.max_workers,
-        extra_config={"generate_dags": args.dags} if args.dataset == "dsbio" else {}
+        extra_config={"generate_dags": args.dags} if is_dsbio or is_dspredict else {}
     )
     
     # Run evaluation
@@ -250,7 +264,7 @@ def run_eval(args) -> int:
                 print("-" * 20)
                 for metric_name, score in metric_scores.items():
                     print(f"{metric_name}: {score:.3f}")
-        if "dspredict" in args.dataset:
+        if is_dspredict:
             dataset.print_dspredict_results_overview(results["results"])
         
         return 0

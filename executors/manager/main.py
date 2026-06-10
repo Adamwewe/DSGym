@@ -89,34 +89,86 @@ async def make_request(client: httpx.AsyncClient, method: str, container_id: int
 
 app = FastAPI(title="Executor Manager")
 
+async def _wait_for_container(request: Request, queue: asyncio.Queue, allocation_timeout: float) -> Optional[int]:
+    """
+    Wait for a container from *queue*, but abort immediately if the HTTP client
+    disconnects.  Returns the container_id, or None if the client disconnected.
+    Raises asyncio.TimeoutError if allocation_timeout is exceeded.
+
+    Uses a single persistent get_task so that no orphaned queue.get() futures
+    are created across poll iterations.  The old asyncio.shield(queue.get())
+    pattern recreated a new coroutine every second, causing containers
+    dequeued by stale futures to disappear from both available and allocated
+    sets (available=0, allocated=0 with containers unaccounted for).
+    """
+    start = asyncio.get_event_loop().time()
+    # One persistent get task — reused across all poll iterations.
+    get_task = asyncio.ensure_future(queue.get())
+    container_id = None
+    try:
+        while True:
+            if await request.is_disconnected():
+                return None
+            elapsed = asyncio.get_event_loop().time() - start
+            if elapsed >= allocation_timeout:
+                raise asyncio.TimeoutError()
+            # Wait up to 1 s for the get to complete, then re-check disconnect/timeout.
+            # asyncio.wait does NOT cancel get_task on timeout — it stays alive for
+            # the next iteration, unlike wait_for which would cancel it.
+            done, _ = await asyncio.wait([get_task], timeout=1.0)
+            if get_task in done:
+                container_id = get_task.result()
+                return container_id
+            # else: poll timed out, loop to re-check disconnect + allocation_timeout
+    finally:
+        if not get_task.done():
+            get_task.cancel()
+            try:
+                await get_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        elif container_id is None and not get_task.cancelled():
+            # Task finished with a result but we're exiting via an exception path
+            # before returning it — put the container back to avoid leaking it.
+            try:
+                leaked_id = get_task.result()
+                queue.put_nowait(leaked_id)
+            except Exception:
+                pass
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 @app.post("/allocate", response_model=AllocationResponse)
-async def allocate_container(container_type: Optional[str] = None):
-    # If no type specified, try to allocate from any available type
+async def allocate_container(request: Request, container_type: Optional[str] = None):
+    allocation_timeout = float(os.getenv("ALLOCATION_TIMEOUT", "3600"))
+
+    # Build ordered list of queues to try
     if container_type is None:
-        for type_name, queue in available_containers_by_type.items():
-            if queue.qsize() > 0:
-                try:
-                    container_id = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    allocated_containers.add(container_id)
-                    return AllocationResponse(container_id=container_id)
-                except asyncio.TimeoutError:
-                    continue
-        raise HTTPException(status_code=503, detail="No containers available")
-    
-    # Allocate specific type
-    if container_type not in available_containers_by_type:
-        raise HTTPException(status_code=400, detail=f"Unknown container type: {container_type}")
-    
-    try:
-        container_id = await asyncio.wait_for(available_containers_by_type[container_type].get(), timeout=30.0)
-        allocated_containers.add(container_id)
-        return AllocationResponse(container_id=container_id)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=503, detail=f"No {container_type} containers available")
+        queues = list(available_containers_by_type.items())
+    else:
+        if container_type not in available_containers_by_type:
+            raise HTTPException(status_code=400, detail=f"Unknown container type: {container_type}")
+        queues = [(container_type, available_containers_by_type[container_type])]
+
+    # Fast path: grab immediately if something is available
+    for type_name, queue in queues:
+        if queue.qsize() > 0:
+            try:
+                container_id = await asyncio.wait_for(queue.get(), timeout=0.1)
+                allocated_containers.add(container_id)
+                return AllocationResponse(container_id=container_id)
+            except asyncio.TimeoutError:
+                continue
+
+    # Slow path: wait on the first matching queue, aborting if client disconnects
+    type_name, queue = queues[0]
+    container_id = await _wait_for_container(request, queue, allocation_timeout)
+    if container_id is None:
+        raise HTTPException(status_code=499, detail="Client disconnected during allocation")
+    allocated_containers.add(container_id)
+    return AllocationResponse(container_id=container_id)
 
 @app.post("/deallocate/{container_id}")
 async def deallocate_container(container_id: int):
@@ -225,6 +277,43 @@ async def get_status():
         "allocated_containers": len(allocated_containers),
         "total_containers": len(config.config),
         "allocated_container_ids": list(allocated_containers)
+    }
+
+@app.post("/reset")
+async def reset_all():
+    """
+    Hard-reset manager state without restarting the process.
+
+    Creates fresh asyncio queues for each container type (abandoning any
+    stale queue.get() waiters that survived a dead client process), clears
+    the allocated set, restarts every executor container, then re-populates
+    the queues.  Stale waiters that were blocked on the old queues will
+    eventually hit the ALLOCATION_TIMEOUT and return 503 — they will never
+    receive a container from the new queues.
+    """
+    global available_containers_by_type, allocated_containers
+
+    # Replace queues so stale asyncio waiters are abandoned on old queue objects
+    new_queues: dict[str, asyncio.Queue] = {t: asyncio.Queue() for t in available_containers_by_type}
+    available_containers_by_type = new_queues
+    allocated_containers = set()
+
+    restarted, failed = [], []
+    for container_id in list(config.config.keys()):
+        container_id = int(container_id)
+        try:
+            await make_request(http_client, "POST", container_id, "restart")
+            restarted.append(container_id)
+        except Exception as e:
+            failed.append({"container_id": container_id, "error": str(e)})
+        container_type = config.get_type(container_id)
+        available_containers_by_type[container_type].put_nowait(container_id)
+
+    return {
+        "status": "reset_completed",
+        "restarted": restarted,
+        "failed": failed,
+        "available_containers": sum(q.qsize() for q in available_containers_by_type.values()),
     }
 
 @app.on_event("shutdown")

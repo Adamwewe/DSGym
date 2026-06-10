@@ -9,13 +9,24 @@ the logic from the legacy evaluator's `evaluate_dspredict_submission_in_leaderbo
 from __future__ import annotations
 
 import os
+import random
 import shutil
 import time
 from datetime import datetime
 from typing import Optional, Dict, Any
-from tenacity import retry, stop_after_attempt, wait_random
+from tenacity import retry, stop_after_attempt, wait_random, wait_exponential_jitter, retry_if_exception
 
 from ..base import BaseMetric, MetricResult
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Return True for transient errors that should trigger a retry."""
+    msg = str(exc).lower()
+    return any(
+        kw in msg
+        for kw in ("429", "too many requests", "rate limit", "timeout", "connection aborted",
+                   "broken pipe", "reset by peer", "temporarily unavailable", "503", "502", "500")
+    )
 
 
 def _safe_float(x):
@@ -23,6 +34,87 @@ def _safe_float(x):
         return float(x)
     except Exception:
         return None
+
+
+class _ProgressWrapper:
+    """File-like wrapper that prints upload progress.
+
+    Works with ``requests.put(data=wrapper)`` — requests calls ``read(n)``
+    repeatedly, which lets us track progress without loading the whole file
+    into memory.
+
+    Using a file-like object (not a generator) is critical: ``requests``/urllib3
+    will honour a manually-set ``Content-Length`` header and will NOT add
+    ``Transfer-Encoding: chunked``.  When httpx receives a generator it always
+    adds chunked encoding even when ``Content-Length`` is also present, which
+    sends conflicting headers to GCS and causes the server to drop the
+    connection near the end of large uploads.
+    """
+
+    def __init__(self, file_path: str, file_size: int, chunk_size: int = 1024 * 1024):
+        self._path = file_path
+        self._file_size = file_size
+        self._chunk_size = chunk_size
+        self._uploaded = 0
+        self._last_report = 0
+        self._report_every = max(file_size // 20, chunk_size)
+        self._fh = open(file_path, "rb")
+
+    # requests calls read(n) with a fixed block size
+    def read(self, n: int = -1) -> bytes:
+        chunk = self._fh.read(self._chunk_size if n == -1 else n)
+        if chunk:
+            self._uploaded += len(chunk)
+            if (self._uploaded - self._last_report >= self._report_every
+                    or self._uploaded == self._file_size):
+                pct = 100.0 * self._uploaded / self._file_size if self._file_size else 100
+                print(
+                    f"  … {self._uploaded / (1024*1024):.1f} /"
+                    f" {self._file_size / (1024*1024):.1f} MB  ({pct:.0f}%)",
+                    flush=True,
+                )
+                self._last_report = self._uploaded
+        return chunk
+
+    def close(self):
+        self._fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def _make_upload_session():
+    """Return a requests.Session with TCP keep-alive tuned for large uploads.
+
+    TCP keepalive prevents NAT/firewall tables from expiring the connection
+    during a slow, multi-minute upload — without it the remote end receives
+    no data for the keepalive idle period and resets the TCP connection,
+    producing ``BrokenPipeError``.
+    """
+    import socket
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    class _KeepAliveAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            opts = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+            if hasattr(socket, "TCP_KEEPIDLE"):      # Linux
+                opts += [
+                    (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30),
+                    (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10),
+                    (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6),
+                ]
+            elif hasattr(socket, "TCP_KEEPALIVE"):   # macOS
+                opts.append((socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 30))
+            kwargs["socket_options"] = opts
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    session.mount("https://", _KeepAliveAdapter())
+    return session
 
 
 class DSPredictSubmissionManager:
@@ -66,20 +158,48 @@ class DSPredictSubmissionManager:
             ApiCreateSubmissionRequest,
             ApiStartSubmissionUploadRequest,
         )
-        import requests
 
         file_size = os.path.getsize(file_path)
         file_name = os.path.basename(file_path)
+        file_size_mb = file_size / (1024 * 1024)
 
         upload_request = ApiStartSubmissionUploadRequest()
         upload_request.competition_name = competition_name
         upload_request.content_length = file_size
         upload_request.file_name = file_name
 
-        upload_response = self.client.competitions.competition_api_client.start_submission_upload(upload_request)
+        upload_response = self.client.competitions.competition_api_client.start_submission_upload(
+            upload_request
+        )
 
-        with open(file_path, "rb") as f:
-            requests.put(upload_response.create_url, data=f)
+        print(f"⬆️  Uploading {file_name} ({file_size_mb:.1f} MB) to {competition_name}…")
+        upload_start = time.time()
+
+        # Use requests (not httpx) with a file-like wrapper so that urllib3
+        # honours the Content-Length header and does NOT add
+        # Transfer-Encoding: chunked.  httpx always adds chunked encoding for
+        # generator content even when Content-Length is provided, which sends
+        # conflicting headers to GCS and causes the server to reset the
+        # connection near the end of large uploads (BrokenPipeError).
+        #
+        # timeout=(30, None): 30 s to connect, then blocking for the upload
+        # and response — no write-side timeout for slow connections.
+        with _make_upload_session() as session, \
+                _ProgressWrapper(file_path, file_size) as wrapper:
+            response = session.put(
+                upload_response.create_url,
+                data=wrapper,
+                headers={
+                    "Content-Length": str(file_size),
+                    "Content-Type": "application/octet-stream",
+                },
+                timeout=(30, None),
+            )
+
+        elapsed = time.time() - upload_start
+        speed_mbps = file_size_mb / elapsed if elapsed > 0 else 0
+        print(f"✅ Upload complete: {file_size_mb:.1f} MB in {elapsed:.0f}s ({speed_mbps:.1f} MB/s)")
+        response.raise_for_status()
 
         submit_request = ApiCreateSubmissionRequest()
         submit_request.competition_name = competition_name
@@ -99,22 +219,105 @@ class DSPredictSubmissionManager:
             "public_score": submission.public_score,
             "private_score": submission.private_score,
             "status": str(submission.status),
+            "error_description": submission.error_description or "",
         }
 
     def wait_for_submission(self, submission_ref: str, timeout_minutes: int = 30) -> Dict[str, Any]:
         start = time.time()
         timeout = timeout_minutes * 60
+        # Random initial offset so parallel workers don't all poll simultaneously
+        time.sleep(random.uniform(5, 20))
         while time.time() - start < timeout:
-            info = self.get_submission_score(submission_ref)
+            try:
+                info = self.get_submission_score(submission_ref)
+            except Exception as exc:
+                if _is_retryable(exc):
+                    print(f"⚠️  Polling error (will retry): {exc}")
+                    time.sleep(30 + random.uniform(0, 20))
+                    continue
+                raise
             status = info.get("status", "")
             if "COMPLETE" in status:
                 return info
             if "ERROR" in status:
+                err = info.get("error_description", "")
+                if err:
+                    print(f"⚠️  Kaggle error: {err}")
                 return info
-            time.sleep(30)
+            # Jittered poll interval: base 30s ± 10s so workers stay out of sync
+            time.sleep(30 + random.uniform(-10, 10))
         final_info = self.get_submission_score(submission_ref)
         final_info["status"] = str(final_info.get("status", "TIMEOUT"))
         return final_info
+
+
+def _validate_submission(submission_path: str, challenge_name: str) -> list:
+    """Validate a submission CSV against the local sample submission.
+
+    Returns a list of human-readable error strings (empty = valid).
+    Looks for ``sample_submission*.csv`` in any known data split under
+    ``data/data/dspredict-{split}/{challenge_name}/``.
+
+    The errors are injected back into the agent's conversation so it can
+    self-correct before the file is uploaded to Kaggle.
+    """
+    import csv
+    import glob as _glob
+
+    try:
+        from dsgym.datasets.config import RAW_DATA_DIR
+        base = RAW_DATA_DIR
+    except Exception:
+        return []
+
+    sample_path = None
+    for split in ("sampled", "easy", "hard", "lite"):
+        pattern = str(base / f"dspredict-{split}" / challenge_name / "sample_submission*.csv")
+        matches = [p for p in _glob.glob(pattern) if not p.endswith(".zip")]
+        if matches:
+            sample_path = matches[0]
+            break
+
+    if sample_path is None:
+        return []
+
+    errors = []
+
+    try:
+        with open(sample_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            expected_cols = next(reader, None)
+            expected_rows = sum(1 for _ in reader)
+    except Exception as e:
+        return [f"Could not read sample submission: {e}"]
+
+    if not expected_cols:
+        return []
+
+    try:
+        with open(submission_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            actual_cols = next(reader, None)
+            actual_rows = sum(1 for _ in reader)
+    except Exception as e:
+        return [f"Could not read submission file: {e}"]
+
+    if not actual_cols:
+        return ["Submission file appears to be empty or has no header"]
+
+    missing = sorted(set(expected_cols) - set(actual_cols))
+    extra   = sorted(set(actual_cols)   - set(expected_cols))
+
+    if missing:
+        errors.append(f"Missing required columns: {missing}")
+    if extra:
+        errors.append(f"Extra/unexpected columns (remove these): {extra}")
+    if actual_rows != expected_rows:
+        errors.append(
+            f"Wrong number of rows: expected {expected_rows:,}, got {actual_rows:,}"
+        )
+
+    return errors
 
 @retry(wait=wait_random(10, 15))
 def get_next_page(client, req):
@@ -281,17 +484,38 @@ class KaggleSubmissionMetric(BaseMetric):
 
     # @retry(wait=wait_random(2, 5), stop=stop_after_attempt(5))
     def _submit_via_api(self, challenge_name, submission_path):
-        manager = DSPredictSubmissionManager()
+        """Submit file and wait for score, retrying the full flow with a fresh
+        KaggleClient on every attempt.
 
-        ref = manager.submit_file(
-            competition_name=challenge_name,
-            file_path=submission_path,
-            description=f"DSGym auto submission {challenge_name}",
-        )
-
-        score_info = manager.wait_for_submission(ref, timeout_minutes=self.timeout_minutes)
-
-        return score_info
+        Stale gRPC/HTTP connections in KaggleClient produce
+        ('Connection aborted.', BrokenPipeError) on the Kaggle API calls
+        (start_submission_upload, create_submission, get_submission).
+        Creating a new DSPredictSubmissionManager() on each retry gives a
+        completely fresh connection pool, which clears the stale-connection issue.
+        """
+        last_exc = None
+        for attempt in range(5):
+            if attempt > 0:
+                wait_secs = 20 * attempt + random.uniform(0, 10)
+                print(f"⚠️  Submission attempt {attempt + 1} for {challenge_name}, retrying in {wait_secs:.0f}s…")
+                time.sleep(wait_secs)
+            try:
+                # Fresh manager = fresh KaggleClient = fresh connection pool
+                manager = DSPredictSubmissionManager()
+                ref = manager.submit_file(
+                    competition_name=challenge_name,
+                    file_path=submission_path,
+                    description=f"DSGym auto submission {challenge_name}",
+                )
+                score_info = manager.wait_for_submission(ref, timeout_minutes=self.timeout_minutes)
+                return score_info
+            except Exception as exc:
+                if _is_retryable(exc):
+                    last_exc = exc
+                    print(f"⚠️  Submission attempt {attempt + 1} failed ({exc})")
+                else:
+                    raise
+        raise last_exc
     def evaluate(
         self,
         prediction: str,

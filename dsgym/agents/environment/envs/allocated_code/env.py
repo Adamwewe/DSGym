@@ -6,7 +6,9 @@ Provides code execution capabilities with container isolation.
 
 import re
 import os
+import sys
 import json
+import platform
 from typing import Any, Dict, Optional, Tuple, List
 from ...base_text_env import BaseTextEnv, BaseEnvStepOutput, ConversationType
 from .utils import clean_jupyter_output
@@ -31,10 +33,24 @@ class AllocatedCodeEnv(BaseTextEnv):
         Initialize allocated code environment.
         
         Args:
-            manager_url: URL of the code execution manager
-            max_turns: Maximum number of turns per episode
-            output_dir: Directory for saving outputs
-            **kwargs: Additional configuration
+            manager_url: URL of the code execution manager.
+            max_turns: Maximum number of turns per episode.
+            output_dir: Directory for saving outputs.
+            **kwargs: Additional configuration:
+                time_out (int): HTTP client timeout in seconds for code execution requests (default: 1800).
+                container_type (str | None): Container type to request from the manager.
+                    ``"auto"`` (default) detects the platform automatically and requests
+                    ``"executor-kaggle-apple"`` on Apple Silicon, or leaves the type
+                    unspecified on other platforms.  Pass an explicit type string to
+                    override, or ``None`` to let the manager pick any available container.
+                allocation_timeout (float | None): Timeout in seconds for the /allocate
+                    request to the manager.
+                    - ``None`` (default) — block indefinitely until a container is free.
+                      Use this when many tasks compete for a small pool (e.g. dspredict),
+                      so tasks queue up rather than fail immediately.
+                    - A positive number — give up after that many seconds and raise an
+                      error.  Use this for environments where containers are almost always
+                      available and a fast failure is preferable (e.g. dsbio).
         """
         super().__init__()
         
@@ -44,12 +60,20 @@ class AllocatedCodeEnv(BaseTextEnv):
         
         # Optional HTTP client timeout (seconds) passed via kwargs as `time_out`
         self.time_out: Optional[int] = kwargs.get("time_out")  # type: ignore[assignment]
+        # Optional container type override; "auto" (default) detects from platform
+        self.container_type: Optional[str] = kwargs.get("container_type", "auto")  # type: ignore[assignment]
 
-        # Initialize tool group for code execution, honoring optional timeout
-        if self.time_out is not None:
-            self.tool_group = AllocatedCodeToolGroup(manager_url, timeout=self.time_out)
-        else:
-            self.tool_group = AllocatedCodeToolGroup(manager_url)
+        # Optional allocation timeout override; None = block until a container is free (default),
+        # a number = give up after that many seconds (use for envs where allocation rarely blocks)
+        self.allocation_timeout: Optional[float] = kwargs.get("allocation_timeout")  # type: ignore[assignment]
+
+        # Initialize tool group for code execution, honoring optional timeout and container type
+        self.tool_group = AllocatedCodeToolGroup(
+            manager_url,
+            **({"timeout": self.time_out} if self.time_out is not None else {}),
+            container_type=self.container_type,
+            allocation_timeout=self.allocation_timeout,
+        )
         
         self.chat_history: ConversationType = []
         # Environment state
@@ -329,18 +353,59 @@ class AllocatedCodeEnv(BaseTextEnv):
             print(f"⚠️ Warning: Failed to save prediction: {e}")
 
 
+def _detect_container_type() -> Optional[str]:
+    """Return the appropriate container type for the current platform, or None to let the manager decide."""
+    if sys.platform == "darwin" and platform.machine() == "arm64":
+        return "executor-kaggle-apple"
+    return None
+
+
 class AllocatedCodeToolGroup:
-    """Same as original AllocatedCodeToolGroup"""
-    def __init__(self, manager_url: str = "http://localhost:5000", timeout: int = 1800):
+    """
+    Low-level tool group that manages a single allocated executor container.
+
+    Args:
+        manager_url: Base URL of the executor manager service.
+        timeout: HTTP client timeout in seconds for code execution requests (default: 1800).
+        container_type: Type of container to request from the manager.
+            ``"auto"`` (default) calls :func:`_detect_container_type` to pick the right
+            type for the current platform.  ``None`` lets the manager choose any
+            available container.  Any other string is passed as-is.
+        allocation_timeout: Timeout in seconds for the ``/allocate`` HTTP request.
+            ``None`` (default) disables the timeout so the call blocks until the manager
+            dequeues a free container — ideal when the container pool is heavily
+            contended (e.g. dspredict with many parallel tasks).  A positive number
+            causes the request to fail with ``httpx.ReadTimeout`` if no container is
+            granted within that window — suitable for lightly loaded environments
+            (e.g. dsbio) where a fast failure is preferable over an indefinite wait.
+    """
+    def __init__(self, manager_url: str = "http://localhost:5000", timeout: int = 1800,
+                 container_type: Optional[str] = "auto",
+                 allocation_timeout: Optional[float] = None):
         self.manager_url = manager_url
         self.allocated_container: Optional[int] = None
         self.client = httpx.Client(timeout=timeout)
-    
+        # "auto" → detect from platform; None / explicit string → use as-is
+        if container_type == "auto":
+            self.container_type = _detect_container_type()
+        else:
+            self.container_type = container_type
+        # None = block indefinitely; a number = give up after that many seconds
+        self.allocation_timeout = allocation_timeout
+
     def allocate_container(self):
         if self.allocated_container is not None:
             return
-        
-        response = self.client.post(f"{self.manager_url}/allocate")
+
+        params = {}
+        if self.container_type is not None:
+            params["container_type"] = self.container_type
+            print(f"🔍 Allocating container of type: {self.container_type}")
+
+        response = self.client.post(
+            f"{self.manager_url}/allocate", params=params, timeout=self.allocation_timeout
+        )
+        response.raise_for_status()
         response.raise_for_status()
         result = response.json()
         self.allocated_container = result["container_id"]
@@ -355,7 +420,11 @@ class AllocatedCodeToolGroup:
     
     def execute_code(self, code: str) -> str:
         if self.allocated_container is None:
-            raise RuntimeError("No container allocated")
+            # Allocation may have failed earlier (e.g. all containers busy at init time).
+            # Block here until one becomes available rather than failing immediately.
+            print("🔄 No container allocated yet — retrying allocation...")
+            self.allocate_container()
+            print(f"🔧 Late-allocated container: {self.allocated_container}")
         
         try:
             response = self.client.post(

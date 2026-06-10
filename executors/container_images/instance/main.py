@@ -1,4 +1,5 @@
 import os
+import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
 from kernel_executor import KernelExecutor
@@ -21,7 +22,8 @@ async def shutdown_event():
 
 @app.post("/execute")
 async def execute_code(request: CodeRequest):
-    outputs = executor.execute(request.code)
+    loop = asyncio.get_event_loop()
+    outputs = await loop.run_in_executor(None, executor.execute, request.code)
     return {"outputs": outputs}
 
 @app.get("/health")
@@ -38,8 +40,8 @@ async def ready():
         return {"ready": False, "reason": "kernel_restarting"}
     
     try:
-        # Execute a simple test and verify we get the correct result
-        outputs = executor.execute("1+1")
+        loop = asyncio.get_event_loop()
+        outputs = await loop.run_in_executor(None, executor.execute, "1+1")
         
         # Check if we got the expected result
         if outputs and len(outputs) > 0:

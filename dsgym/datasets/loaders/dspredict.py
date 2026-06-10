@@ -11,7 +11,7 @@ from statistics import mean
 from ..base import BaseDataset
 from ..registry import register_dataset
 from ..utils import apply_limit_and_start, validate_file_exists, create_standard_task
-from ..prompts import SYSTEM_PROMPT_DSPREDICT
+from ..prompts import SYSTEM_PROMPT_DSPREDICT, SYSTEM_PROMPT_DAG_DSPREDICT
 from dsgym.datasets.config import get_task_path, RAW_DATA_DIR
 from .kaggle_downloader import KaggleChallengeDownloader
 
@@ -34,7 +34,17 @@ When you finished training the best model, you should generate the final submiss
 
 1. Use the best model to generate predictions for the test data located at the path shown above.
 2. Save predictions in the required **`submission.csv` format** for the competition at /submission/submission.csv.
-3. Provide a concise summary of your approach in the format: <answer>your final summary</answer>
+3. **Validate the submission format** by comparing your file against the sample submission:
+   ```python
+   import pandas as pd
+   sample = pd.read_csv('/data/dspredict-sampled/{challenge_name}/sample_submission.csv')
+   submission = pd.read_csv('/submission/submission.csv')
+   assert list(submission.columns) == list(sample.columns), f"Column mismatch: expected {list(sample.columns)}, got {list(submission.columns)}"
+   assert len(submission) == len(sample), f"Row count mismatch: expected {len(sample)}, got {len(submission)}"
+   print("Submission format OK")
+   ```
+   Fix any column name, column order, or row count mismatches before finishing.
+4. Provide a concise summary of your approach in the format: <answer>your final summary</answer>
 """
 
 
@@ -72,6 +82,7 @@ class DSPredictDataset(BaseDataset):
         limit: Optional[int] = None, 
         split: str = "easy", 
         start_index: int = 0,
+        generate_dags: bool = False,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -79,8 +90,11 @@ class DSPredictDataset(BaseDataset):
         
         Args:
             limit: Maximum number of samples to load
-            split: Dataset split (easy/hard)
+            split: Dataset split ("easy", "hard", "lite", or "sampled")
             start_index: Starting index for data selection
+            generate_dags: If True, switch to the iterative DAG system prompt so the
+                agent self-generates and self-revises its reasoning and implementation
+                DAGs inline during solving. No upfront API calls are made.
             **kwargs: Additional loading parameters
             
         Returns:
@@ -92,6 +106,8 @@ class DSPredictDataset(BaseDataset):
             dataset_path = str(get_task_path("dspredict") / "hard.json")
         elif split == "lite":
             dataset_path = str(get_task_path("dspredict") / "lite.json")
+        elif split == "sampled":
+            dataset_path = str(get_task_path("dspredict") / "dspredict_sampled.json")
         else:
             dataset_path = str(get_task_path("dspredict") / "hard.json")
         
@@ -163,11 +179,12 @@ class DSPredictDataset(BaseDataset):
             }
             
             # Create standardized sample
+            active_system_prompt = SYSTEM_PROMPT_DAG_DSPREDICT if generate_dags else SYSTEM_PROMPT_DSPREDICT
             standard_sample = create_standard_task(
                 prompt_content=user_content,
                 ground_truth="",  # DSPredict competitions don't have ground truth
                 extra_info=extra_info,
-                system_prompt=SYSTEM_PROMPT_DSPREDICT
+                system_prompt=active_system_prompt
             )
             
             samples.append(standard_sample)
@@ -192,12 +209,184 @@ class DSPredictDataset(BaseDataset):
                 'name': 'DSPredict',
                 'description': 'DSPredict competition challenges for machine learning',
                 'format': 'json',
-                'splits': ['easy', 'hard'],
+                'splits': ['easy', 'hard', 'lite', 'sampled'],
                 'fields': ['challenge_name', 'description', 'docker_challenge_path'],
                 'source': 'dspredict'
             }
         
         return self._metadata
+
+    def create_sample(
+        self,
+        n: int,
+        split: str = "hard",
+        seed: int = 42,
+        output_path: Optional[str] = None,
+    ) -> str:
+        """
+        Randomly sample ``n`` tasks from a DSPredict split and save them as
+        ``dspredict_sampled.json`` for reproducible repeated experiments.
+
+        The saved file uses the same raw JSON format as the source dataset so it
+        can be loaded via ``load(split="sampled")``.
+
+        Args:
+            n:           Number of tasks to sample.
+            split:       Source split to sample from ("easy", "hard", or "lite"). Default: "hard".
+            seed:        Random seed for reproducible sampling (default: 42).
+            output_path: Where to write the file. Defaults to
+                         ``{task_dir}/dspredict_sampled.json``.
+
+        Returns:
+            Absolute path to the written file.
+        """
+        import random
+
+        split_file_map = {"easy": "easy.json", "hard": "hard.json", "lite": "lite.json"}
+        if split not in split_file_map:
+            raise ValueError(
+                f"Invalid split '{split}'. Choose from: {list(split_file_map.keys())}"
+            )
+
+        source_path = str(get_task_path("dspredict") / split_file_map[split])
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(
+                f"Split file not found: {source_path}"
+            )
+
+        with open(source_path, "r", encoding="utf-8") as f:
+            all_data = json.load(f)
+
+        if n > len(all_data):
+            raise ValueError(
+                f"Requested sample size {n} exceeds dataset size {len(all_data)} for split '{split}'."
+            )
+
+        rng = random.Random(seed)
+        sampled = rng.sample(all_data, n)
+
+        if output_path is None:
+            output_path = str(get_task_path("dspredict") / "dspredict_sampled.json")
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(sampled, f, indent=2, ensure_ascii=False)
+
+        print(
+            f"✅ Sampled {n} tasks (seed={seed}) from {split}.json "
+            f"→ {output_path}"
+        )
+        return output_path
+
+    # ------------------------------------------------------------------
+    # DAG generation (post-hoc, API-based)
+    # ------------------------------------------------------------------
+
+    def generate_dag(
+        self,
+        sample: Dict[str, Any],
+        dag_type: str = "reasoning",
+        reasoning_dag=None,
+        model: str = "gpt-4o",
+    ):
+        """
+        Generate a reasoning or implementation DAG for a single DSPredict sample.
+
+        Args:
+            sample:        A DSPredict sample dict (from :meth:`load`).
+            dag_type:      ``"reasoning"`` or ``"implementation"``.
+            reasoning_dag: Required when ``dag_type="implementation"``; the
+                           previously generated ReasoningDAG (or equivalent dict).
+            model:         LiteLLM-compatible model name (default: ``"gpt-4o"``).
+
+        Returns:
+            A validated ReasoningDAG or ImplementationDAG.
+        """
+        from dsgym.datasets.dag_generator import (
+            generate_implementation_dag,
+            generate_reasoning_dag,
+        )
+        from dsgym.datasets.prompts.dag_prompts import (
+            build_reasoning_prompt_dspredict,
+            build_implementation_prompt_dspredict,
+        )
+        import litellm
+        import json as _json
+        import re
+
+        extra = sample.get("extra_info", {})
+        challenge_name = extra.get("challenge_name", "")
+        # description is embedded in the full prompt; extract from extra_info if available
+        description = extra.get("description", extra.get("question", ""))
+
+        if not challenge_name:
+            raise ValueError("Sample must contain a non-empty 'challenge_name' in extra_info")
+
+        def _call(system_prompt, user_prompt):
+            from dsgym.datasets.dag_generator import _supports_json_object_format, _extract_json
+            from dsgym.datasets.dag import ReasoningDAG, ImplementationDAG
+            kwargs = dict(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            if _supports_json_object_format(model):
+                kwargs["response_format"] = {"type": "json_object"}
+            response = litellm.completion(**kwargs)
+            raw = response.choices[0].message.content
+            if not raw:
+                raise RuntimeError("Empty response from model")
+            return _extract_json(raw)
+
+        if dag_type == "reasoning":
+            from dsgym.datasets.dag import ReasoningDAG
+            from dsgym.datasets.dag_generator import _extract_json
+            sys_p, usr_p = build_reasoning_prompt_dspredict(challenge_name, description)
+            raw_json = _call(sys_p, usr_p)
+            return ReasoningDAG.model_validate_json(raw_json)
+
+        if dag_type == "implementation":
+            if reasoning_dag is None:
+                raise ValueError(
+                    "reasoning_dag is required when dag_type='implementation'. "
+                    "Generate a reasoning DAG first with dag_type='reasoning'."
+                )
+            from dsgym.datasets.dag import ImplementationDAG, ReasoningDAG
+            import json as _json
+            reasoning_dict = (
+                _json.loads(reasoning_dag.model_dump_json())
+                if isinstance(reasoning_dag, ReasoningDAG)
+                else reasoning_dag
+            )
+            sys_p, usr_p = build_implementation_prompt_dspredict(challenge_name, description, reasoning_dict)
+            raw_json = _call(sys_p, usr_p)
+            return ImplementationDAG.model_validate_json(raw_json)
+
+        raise ValueError(f"Unknown dag_type '{dag_type}'. Choose 'reasoning' or 'implementation'.")
+
+    def generate_dags(
+        self,
+        sample: Dict[str, Any],
+        model: str = "gpt-4o",
+    ) -> Dict[str, Any]:
+        """
+        Convenience method: generate both reasoning and implementation DAGs
+        for a single DSPredict sample in one call.
+
+        Args:
+            sample: A DSPredict sample dict (from :meth:`load`).
+            model:  LiteLLM-compatible model name (default: ``"gpt-4o"``).
+
+        Returns:
+            Dict with keys ``"reasoning"`` (ReasoningDAG) and
+            ``"implementation"`` (ImplementationDAG).
+        """
+        reasoning = self.generate_dag(sample, dag_type="reasoning", model=model)
+        implementation = self.generate_dag(
+            sample, dag_type="implementation", reasoning_dag=reasoning, model=model
+        )
+        return {"reasoning": reasoning, "implementation": implementation}
 
     def get_metrics(self) -> List[str]:
         """Get metrics for DSPredict dataset."""

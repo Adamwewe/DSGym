@@ -23,7 +23,7 @@ class DSPredictReActAgent(ReActDSAgent):
 
         self.submission_dir = kwargs.get('submission_dir', '')
         # Optional HTTP client timeout (seconds) for code execution manager
-        self.time_out = kwargs.get('time_out', 1800)
+        self.time_out = kwargs.get('time_out', 7200)
 
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -253,12 +253,35 @@ class DSPredictReActAgent(ReActDSAgent):
             
             execution_time = time.time() - start_time
             error_trace = traceback.format_exc()
-            print(F"Error in agent: {error_trace}")
+            print(f"Error in agent: {error_trace}")
+
+            # Even on an exception, check whether the agent managed to write a
+            # submission.csv before failing.  This recovers cases where the run
+            # hit a system-level timeout or allocation error AFTER the container
+            # had already produced a valid file.
+            submission_path = ""
+            success = False
+            try:
+                container_id = env.tool_group.allocated_container if "env" in locals() else None
+                if container_id is not None:
+                    container_dir = os.path.join(self.submission_dir, f"container_{container_id:03d}")
+                    submission_file = os.path.join(container_dir, "submission.csv")
+                    if os.path.exists(submission_file):
+                        challenge_name = sample.get("extra_info", {}).get("challenge_name", "")
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        unique_name = f"{challenge_name}_{container_id}_{timestamp}_submission.csv"
+                        unique_path = os.path.join(container_dir, unique_name)
+                        shutil.copy2(submission_file, unique_path)
+                        submission_path = unique_path
+                        success = True
+                        print(f"💾 Recovered submission from exception path: {unique_path}")
+            except Exception as recovery_err:
+                print(f"⚠️  Could not recover submission file: {recovery_err}")
 
             return {
-                "solution": "",
-                "success": False,
-                "turns": 0,
+                "solution": submission_path,
+                "success": success,
+                "turns": actual_turns if "actual_turns" in locals() else 0,
                 "error": str(e),
                 "metadata": {
                     "model": self.model,
@@ -268,9 +291,12 @@ class DSPredictReActAgent(ReActDSAgent):
                     "execution_time": execution_time,
                     "error_trace": error_trace,
                 },
-                "conversation": [],
+                "conversation": conversation if "conversation" in locals() else [],
                 "trajectory": trajectory,
-                "raw_result": None,
+                "raw_result": {
+                    "prediction": submission_path,
+                    "turns": actual_turns if "actual_turns" in locals() else 0,
+                } if submission_path else None,
             }
         finally:
             if "env" in locals():

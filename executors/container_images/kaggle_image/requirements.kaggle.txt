@@ -12,6 +12,11 @@ catboost
 scikit-learn
 scipy
 
+#below libs need to be removed if running cpu/apple-silicon jobs
+torch
+tensorflow
+opencv-python
+py7zr
 
 # Feature engineering
 category_encoders

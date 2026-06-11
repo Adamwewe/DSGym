@@ -19,12 +19,11 @@ services:
     - container.id=0
     - container.port=60000
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_000:/submission
@@ -47,12 +46,11 @@ services:
     - container.id=1
     - container.port=60001
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_001:/submission
@@ -75,12 +73,11 @@ services:
     - container.id=2
     - container.port=60002
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_002:/submission
@@ -103,12 +100,11 @@ services:
     - container.id=3
     - container.port=60003
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_003:/submission
@@ -131,12 +127,11 @@ services:
     - container.id=4
     - container.port=60004
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_004:/submission
@@ -159,12 +154,11 @@ services:
     - container.id=5
     - container.port=60005
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_005:/submission
@@ -187,12 +181,11 @@ services:
     - container.id=6
     - container.port=60006
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_006:/submission
@@ -215,12 +208,11 @@ services:
     - container.id=7
     - container.port=60007
     - container.type=executor-kaggle-apple
-    mem_limit: 24G
+    mem_limit: 28G
     cpus: 8.0
     mem_reservation: 512M
     extra_hosts:
     - host.docker.internal:host-gateway
-    platform: linux/arm64
     volumes:
     - ../data/data:/data:ro
     - ../submissions/container_007:/submission

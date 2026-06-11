@@ -163,6 +163,29 @@ export KAGGLE_API_TOKEN=$YOUR_KEY
 
 See the [Kaggle API documentation](https://www.kaggle.com/docs/api) for more details. Note that for online assessment, you will have to manually enroll in the competitions (on your account) in order to submit. This will take a bit of time at the beginning. Alternatively, you can use the offline leaderboard for evaluation, which compares submissions against cached leaderboard data. However, this will still require manual enrollment into the competition. (you will see a 403 error if you don't enroll).
 
+> ⚠️ **Gotcha: Run DSPredict evaluations from the repo root**
+>
+> The agent uses `submission_dir="./submissions"` (a relative path). Docker containers
+> write their `submission.csv` to `<repo-root>/submissions/container_XXX/` (the absolute
+> path embedded in the generated compose file). If you run `dsgym eval` from a
+> subdirectory (e.g. `executors/`), `./submissions` resolves to
+> `executors/submissions/` — which is empty — and every run will silently fail with
+> `"submission file not found"` even though the agent printed `✓ Submission format is valid!`.
+>
+> **Fix:** always run evaluations from the repo root:
+> ```bash
+> # ✅ Correct — run from repo root
+> cd /path/to/DSGym
+> dsgym eval --dataset dspredict-hard --model gpt-4o
+>
+> # ❌ Wrong — ./submissions resolves to executors/submissions/ (empty)
+> cd /path/to/DSGym/executors
+> dsgym eval --dataset dspredict-hard --model gpt-4o
+> ```
+>
+> **Symptom:** `success: false`, `prediction: ""`, metric reason `"submission file not found"`
+> in the result JSON, despite the trajectory showing the agent completed successfully.
+
 
 #### Using Example Scripts
 

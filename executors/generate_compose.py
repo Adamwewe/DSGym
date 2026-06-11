@@ -146,7 +146,6 @@ def generate_compose_file(
     # Validate GPU IDs if provided
     if gpu_ids is not None:
         assert len(gpu_ids) == num_containers, f"Number of GPU IDs ({len(gpu_ids)}) must match number of containers ({num_containers})"
-        assert len(set(gpu_ids)) == len(gpu_ids), f"GPU IDs must be unique, got: {gpu_ids}"
     
     services = {}
     

@@ -31,6 +31,7 @@ class EvaluationResult:
     total_turns: int = 0
     success: bool = True
     error_info: Optional[Dict[str, Any]] = None
+    token_usage: Dict[str, int] = field(default_factory=dict)
     
     # Additional metadata
     trajectory: List[Dict[str, Any]] = field(default_factory=list)
@@ -53,6 +54,7 @@ class EvaluationResult:
             "metrics": self.metrics,
             "execution_time": self.execution_time,
             "total_turns": self.total_turns,
+            "token_usage": self.token_usage,
             "success": self.success,
             "extra_info": self.extra_info,
         }
@@ -76,6 +78,7 @@ class EvaluationResult:
             "metrics": self.metrics,
             "execution_time": self.execution_time,
             "total_turns": self.total_turns,
+            "token_usage": self.token_usage,
             "success": self.success,
             "extra_info": self.extra_info,
         }
@@ -102,6 +105,7 @@ class EvaluationResult:
             total_turns=data.get("total_turns", 0),
             success=data.get("success", True),
             error_info=data.get("error_info"),
+            token_usage=data.get("token_usage", {}),
             trajectory=data.get("trajectory", []),
             extra_info=data.get("extra_info", {}),
         )

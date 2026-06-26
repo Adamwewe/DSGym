@@ -827,6 +827,45 @@ dsgym resubmit \
 - 🤗 **Hugging Face**: [DSGym Repository](https://huggingface.co/DSGym)
 - 💻 **GitHub**: [Source Code](https://github.com/fannie1208/DSGym)
 
+## Gotchas
+
+### Container pool vs. worker count mismatch
+**Symptom**: `⚠️ Warning: Failed to allocate container: Server error '500'/'503' for url 'http://localhost:5000/allocate'`
+
+The default litellm worker count is 24, but a typical dspredict-hard setup only has 5 containers. Having more workers than containers is harmless — excess workers queue up and get a container as soon as one is freed. However, if workers hold containers for longer than `ALLOCATION_TIMEOUT` (default 1 hour), queued workers will time out.
+
+`eval.py` now **automatically caps `max_workers` to the container pool size** by querying `/status` at startup, so this is handled for you. If you override `--max-workers` manually, keep it ≤ the number of containers in your compose file.
+
+### Ghost allocations after a crash
+If the eval process crashes or is killed without cleanly deallocating containers, the manager retains those containers in the "allocated" state permanently — leaving **0 containers available** for new runs. Two ways to recover:
+
+```bash
+# Option 1: soft restart — restarts all currently allocated containers and returns them to the pool
+curl -X POST http://localhost:5000/restart
+
+# Option 2: full reset — abandons stale queue waiters, restarts all containers, rebuilds the pool
+curl -X POST http://localhost:5000/reset
+```
+
+> **Note**: `/reset` calls `/restart` on each executor with a 15-second timeout. If executors are genuinely down it will be slow but will still re-populate the queue so new runs can start.
+
+The manager also performs **automatic zombie recovery**: if a waiting worker hits `ALLOCATION_TIMEOUT`, the manager health-checks every allocated container and restarts any that are unresponsive, returning them to the pool before giving up with 503.
+
+### ALLOCATION_TIMEOUT too short for long-running tasks
+The default `ALLOCATION_TIMEOUT` is **3600 seconds (1 hour)**. DSPredict tasks can run for several hours, so if a worker has been queued for more than an hour it will be dropped.
+
+When generating a compose file for dspredict, pass a longer timeout:
+```bash
+python executors/generate_compose.py ... --allocation-timeout 86400   # 24 hours
+```
+
+### GPU device IDs on a single-GPU machine
+When running multiple executor containers on a host with only one GPU, all containers must use `device_ids: ['0']`. Using IDs `1`–`7` on a single-GPU machine causes a `device error: 3: unknown device` and the container will fail to start. The `--gpu-ids` argument to `generate_compose.py` controls this:
+```bash
+# 5 containers all sharing GPU 0
+python executors/generate_compose.py -n 5 --gpu-ids 0,0,0,0,0 ...
+```
+
 ## Development
 
 ### Linting and Formatting

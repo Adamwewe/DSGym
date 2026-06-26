@@ -407,6 +407,13 @@ class Evaluator:
                     # We want to evaluate metrics even for empty predictions
                     success = agent_result.get("success", True)
                 
+                agent_meta = agent_result.get("metadata", {})
+                token_usage = {
+                    "input_tokens":  agent_meta.get("input_tokens",  0),
+                    "output_tokens": agent_meta.get("output_tokens", 0),
+                    "total_tokens":  agent_meta.get("total_tokens",  0),
+                }
+
                 result = EvaluationResult(
                     sample_id=sample_id,
                     dataset_name=dataset_name,
@@ -416,6 +423,7 @@ class Evaluator:
                     raw_response=raw_response,
                     execution_time=execution_time,
                     total_turns=total_turns,
+                    token_usage=token_usage,
                     success=success,
                     error_info=error_info,
                     trajectory=trajectory,

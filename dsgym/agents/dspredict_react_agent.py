@@ -79,6 +79,8 @@ class DSPredictReActAgent(ReActDSAgent):
                     os.remove(stale_submission)
                     print(f"🧹 Cleared stale submission from previous competition: {stale_submission}")
             total_tokens = 0
+            input_tokens = 0
+            output_tokens = 0
             final_answer = ""
             actual_turns = 0
 
@@ -88,13 +90,18 @@ class DSPredictReActAgent(ReActDSAgent):
                     pruned = self._prune_conversation(conversation)
                     response = self.backend_instance.generate(pruned)
 
+                    # Capture token usage from the backend (LiteLLM fills last_usage)
+                    turn_usage = getattr(self.backend_instance, "last_usage",
+                                         {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+                    input_tokens  += turn_usage.get("input_tokens",  0)
+                    output_tokens += turn_usage.get("output_tokens", 0)
+                    total_tokens  += turn_usage.get("total_tokens",  0)
+
                     # Step environment
                     step_start = time.time()
                     step_output = env.step(response)
                     step_time = time.time() - step_start
 
-                    # Count tokens (approximate)
-                    total_tokens += len(response.split())
                     actual_turns = turn + 1
 
                     # Update conversation with assistant response and new observations
@@ -102,7 +109,7 @@ class DSPredictReActAgent(ReActDSAgent):
                         "role": "assistant",
                         "content": step_output.get("postprocessed_action", response),
                     })
-                    trajectory = self.append_traj(trajectory, turn, "assistant", response, step_output.get("done", False), step_output.get("reward", 0.0), step_time)
+                    trajectory = self.append_traj(trajectory, turn, "assistant", response, step_output.get("done", False), step_output.get("reward", 0.0), step_time, turn_usage)
 
                     if step_output["observations"]:
                         conversation.extend(step_output["observations"])
@@ -193,6 +200,11 @@ class DSPredictReActAgent(ReActDSAgent):
                         try:
                             pruned = self._prune_conversation(conversation)
                             response = self.backend_instance.generate(pruned)
+                            fix_usage = getattr(self.backend_instance, "last_usage",
+                                                {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+                            input_tokens  += fix_usage.get("input_tokens",  0)
+                            output_tokens += fix_usage.get("output_tokens", 0)
+                            total_tokens  += fix_usage.get("total_tokens",  0)
                             step_output = env.step(response)
                             actual_turns += 1
                             conversation.append({
@@ -201,7 +213,7 @@ class DSPredictReActAgent(ReActDSAgent):
                             })
                             trajectory = self.append_traj(
                                 trajectory, actual_turns, "assistant", response,
-                                step_output.get("done", False), step_output.get("reward", 0.0), 0.0
+                                step_output.get("done", False), step_output.get("reward", 0.0), 0.0, fix_usage
                             )
                             if step_output.get("observations"):
                                 conversation.extend(step_output["observations"])
@@ -236,6 +248,8 @@ class DSPredictReActAgent(ReActDSAgent):
                     "backend": self.backend,
                     "dspredict": True,
                     "max_turns": self.max_turns,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
                     "total_tokens": total_tokens,
                     "execution_time": execution_time,
                     "conversation_length": len(conversation),
@@ -245,6 +259,8 @@ class DSPredictReActAgent(ReActDSAgent):
                 "raw_result": {
                     "prediction": submission_path,
                     "turns": actual_turns,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
                     "total_tokens": total_tokens,
                 },
             }
@@ -302,16 +318,19 @@ class DSPredictReActAgent(ReActDSAgent):
             if "env" in locals():
                 env.close()
 
-    def append_traj(self, trajectory, turn, role, content, done, reward, step_time):
+    def append_traj(self, trajectory, turn, role, content, done, reward, step_time, token_usage=None):
         # Record trajectory step
-        trajectory.append({
+        entry = {
             "turn": turn,
             "role": role,
             "content": content,
             "done": done,
             "reward": reward,
             "step_time": step_time,
-        })
+        }
+        if token_usage:
+            entry["token_usage"] = token_usage
+        trajectory.append(entry)
         return trajectory
 
     def _prune_conversation(self, conversation: List[Dict[str, Any]], keep_recent: int = 20) -> List[Dict[str, Any]]:

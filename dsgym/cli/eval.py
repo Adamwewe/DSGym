@@ -101,6 +101,20 @@ def run_eval(args) -> int:
         else:  # vllm or sglang
             args.max_workers = 1
 
+    # For container-bound datasets (dspredict, dsbio), cap max_workers to the
+    # container pool size — having more workers than containers just fills the
+    # allocation queue and causes workers to time out waiting.
+    # if (is_dspredict or is_dsbio) and args.backend == "litellm":
+    #     try:
+    #         import urllib.request, json as _json
+    #         with urllib.request.urlopen(f"{args.manager_url}/status", timeout=5) as _r:
+    #             pool_size = _json.loads(_r.read())["total_containers"]
+    #         if args.max_workers > pool_size:
+    #             print(f"ℹ️  Capping max_workers from {args.max_workers} → {pool_size} (container pool size)")
+    #             args.max_workers = pool_size
+    #     except Exception:
+    #         pass  # manager not reachable yet; keep the user-set value
+
     print(f"Max workers: {args.max_workers}")
     print("-" * 50)
 

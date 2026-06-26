@@ -118,6 +118,8 @@ class ReActDSAgent(BaseAgent):
             
             # Run multi-turn interaction
             total_tokens = 0
+            input_tokens = 0
+            output_tokens = 0
             final_answer = ""
             actual_turns = 0
             
@@ -151,8 +153,12 @@ class ReActDSAgent(BaseAgent):
                 if response is None:
                     break
 
-                # Count tokens (approximate)
-                total_tokens += len(response.split())
+                # Capture actual token usage from the backend (LiteLLM fills last_usage)
+                turn_usage = getattr(self.backend_instance, "last_usage",
+                                     {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+                input_tokens  += turn_usage.get("input_tokens",  0)
+                output_tokens += turn_usage.get("output_tokens", 0)
+                total_tokens  += turn_usage.get("total_tokens",  0)
 
                 # --- Step environment ---
                 try:
@@ -192,6 +198,8 @@ class ReActDSAgent(BaseAgent):
                     'model': self.model,
                     'backend': self.backend,
                     'max_turns': self.max_turns,
+                    'input_tokens': input_tokens,
+                    'output_tokens': output_tokens,
                     'total_tokens': total_tokens,
                     'execution_time': execution_time,
                     'conversation_length': len(conversation)
@@ -200,6 +208,8 @@ class ReActDSAgent(BaseAgent):
                 'raw_result': {
                     'prediction': final_answer,
                     'turns': actual_turns,
+                    'input_tokens': input_tokens,
+                    'output_tokens': output_tokens,
                     'total_tokens': total_tokens
                 }
             }

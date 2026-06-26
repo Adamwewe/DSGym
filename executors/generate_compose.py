@@ -139,7 +139,8 @@ def generate_compose_file(
     extra_env: Optional[dict] = None,
     gpu_ids: Optional[list[int]] = None,
     config_file: str = 'container_config.json',
-    apple_silicon: bool = False
+    apple_silicon: bool = False,
+    allocation_timeout: Optional[int] = None
 ) -> None:
     """Generate a complete Docker Compose file"""
     
@@ -186,14 +187,18 @@ def generate_compose_file(
         services[service_name] = generate_container_config(container_id, host_port, container_type, mountable_volumes, mountable_volume_saveto, extra_env, manager_url=None, gpu_id=gpu_id, apple_silicon=apple_silicon)
     
     # Add manager service
+    manager_env = [
+        'PORT=5000',
+        'CONTAINER_CONFIG_PATH=container_config.json'
+    ]
+    if allocation_timeout is not None:
+        manager_env.append(f'ALLOCATION_TIMEOUT={allocation_timeout}')
+
     services['manager'] = {
         'image': 'manager-prebuilt',
         'command': 'python main.py',
         'ports': ['5000:5000'],
-        'environment': [
-            'PORT=5000',
-            'CONTAINER_CONFIG_PATH=container_config.json'
-        ],
+        'environment': manager_env,
         'volumes': [
             f'./{config_file}:/app/container_config.json:ro'
         ],
@@ -298,6 +303,9 @@ def main():
     parser.add_argument('--apple-silicon', action='store_true',
                         help='Target Apple Silicon (arm64). Adds platform: linux/arm64 to each service '
                              'and disables nvidia GPU config. Use with executor-kaggle-apple image.')
+    parser.add_argument('--allocation-timeout', type=int, default=None,
+                        help='ALLOCATION_TIMEOUT (seconds) for the manager service. Defaults to manager '
+                             'built-in (3600). Set higher for long-running workloads (e.g. dspredict-hard).')
     
     args = parser.parse_args()
     
@@ -326,7 +334,8 @@ def main():
         extra_env=extra_env,
         gpu_ids=gpu_ids,
         config_file=args.config_file,
-        apple_silicon=args.apple_silicon
+        apple_silicon=args.apple_silicon,
+        allocation_timeout=args.allocation_timeout
     )
     
     generate_container_config_json(

@@ -77,6 +77,9 @@ class LiteLLMBackend(BaseBackend):
             if top_p != 1.0:
                 self.generation_params["top_p"] = top_p
         
+        # Per-call token usage; reset to zero after each generate() call
+        self.last_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
         self._setup_litellm()
     
     def _is_reasoning_model(self, model_name: str) -> bool:
@@ -94,6 +97,10 @@ class LiteLLMBackend(BaseBackend):
                 os.environ["OPENAI_API_KEY"] = self.api_key
             elif self.model_name.startswith("claude-") or self.model_name.startswith("anthropic/"):
                 os.environ["ANTHROPIC_API_KEY"] = self.api_key
+            elif self.model_name.startswith("fireworks_ai/"):
+                os.environ["FIREWORKS_AI_API_KEY"] = self.api_key
+            elif self.model_name.startswith("openrouter/"):
+                os.environ["OPENROUTER_API_KEY"] = self.api_key
             else:
                 litellm.api_key = self.api_key
         else:
@@ -110,6 +117,14 @@ class LiteLLMBackend(BaseBackend):
                 self.api_key = os.environ.get("ANTHROPIC_API_KEY")
                 if not self.api_key:
                     raise ValueError("ANTHROPIC_API_KEY environment variable is required for Anthropic Claude models")
+            elif self.model_name.startswith("fireworks_ai/"):
+                self.api_key = os.environ.get("FIREWORKS_AI_API_KEY")
+                if not self.api_key:
+                    raise ValueError("FIREWORKS_AI_API_KEY environment variable is required for Fireworks AI models")
+            elif self.model_name.startswith("openrouter/"):
+                self.api_key = os.environ.get("OPENROUTER_API_KEY")
+                if not self.api_key:
+                    raise ValueError("OPENROUTER_API_KEY environment variable is required for OpenRouter models")
         
         # Set base URL if provided
         if self.base_url:
@@ -149,6 +164,16 @@ class LiteLLMBackend(BaseBackend):
                     **params
                 )
                 content = response.choices[0].message.content
+                # Capture token usage from the API response
+                usage = getattr(response, "usage", None)
+                if usage:
+                    self.last_usage = {
+                        "input_tokens":  getattr(usage, "prompt_tokens",     0) or 0,
+                        "output_tokens": getattr(usage, "completion_tokens",  0) or 0,
+                        "total_tokens":  getattr(usage, "total_tokens",       0) or 0,
+                    }
+                else:
+                    self.last_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
                 return content if content is not None else ""
 
             except (litellm.ContextWindowExceededError, litellm.BadRequestError):

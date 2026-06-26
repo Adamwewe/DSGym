@@ -173,17 +173,19 @@ class KernelExecutor:
         with self._lock:
             msg_id = self.kc.execute(code, silent=False)
             outputs = []
-            
+
             # Track timeout state using mutable object
             timeout_state = {"occurred": False}
-            
-            # Set up timeout handler
+            timer = None
+            start_time = None
+            execution_started = False
+
+            # Set up timeout handler — only called once the execution timer is armed
             def timeout_handler():
                 timeout_state["occurred"] = True
                 try:
                     self.km.interrupt_kernel()
                     print(f"DEBUG: Execution timed out after {self.timeout} seconds, scheduling kernel restart")
-                    # Schedule a kernel restart after timeout to ensure clean state
                     def delayed_restart():
                         time.sleep(1)  # Give interrupt time to take effect
                         print("DEBUG: Restarting kernel after timeout")
@@ -194,60 +196,83 @@ class KernelExecutor:
                 except Exception as e:
                     print(f"DEBUG: Failed to interrupt kernel: {e}")
 
-            # Set up timer for timeout
-            timer = threading.Timer(self.timeout, timeout_handler)
-            timer.start()
-            
-            start_time = time.time()
+            # submit_time guards the pre-execution wait so we don't queue forever
+            # if the kernel never picks up our request.
+            submit_time = time.time()
 
-            while time.time() - start_time < self.timeout and not timeout_state["occurred"]:
-                try:
-                    msg = self.kc.get_iopub_msg(timeout=1)
-                    
-                    if msg['parent_header'].get('msg_id') == msg_id:
-                        msg_type = msg['msg_type']
-                        content = msg['content']
+            try:
+                while not timeout_state["occurred"]:
+                    # Use the execution clock once the kernel signals busy; otherwise
+                    # use the submit clock so queued tasks don't burn execution budget.
+                    if execution_started:
+                        elapsed = time.time() - start_time
+                    else:
+                        elapsed = time.time() - submit_time
+
+                    if elapsed >= self.timeout:
+                        timeout_state["occurred"] = True
+                        break
+
+                    try:
+                        msg = self.kc.get_iopub_msg(timeout=1)
+
+                        if msg['parent_header'].get('msg_id') == msg_id:
+                            msg_type = msg['msg_type']
+                            content = msg['content']
+                            if verbose:
+                                print(f"DEBUG: Received message type: {msg_type}")
+
+                            if msg_type == 'status':
+                                execution_state = content['execution_state']
+                                if execution_state == 'busy' and not execution_started:
+                                    # Kernel has started executing our code — arm the timer NOW
+                                    execution_started = True
+                                    start_time = time.time()
+                                    timer = threading.Timer(self.timeout, timeout_handler)
+                                    timer.start()
+                                elif execution_state == 'idle':
+                                    print("DEBUG: Execution completed normally")
+                                    break
+                            elif msg_type == 'execute_result':
+                                outputs.append({
+                                    'type': 'result',
+                                    'data': content['data']
+                                })
+                            elif msg_type == 'stream':
+                                outputs.append({
+                                    'type': 'stream',
+                                    'name': content['name'],
+                                    'text': content['text']
+                                })
+                            elif msg_type == 'error':
+                                outputs.append({
+                                    'type': 'error',
+                                    'name': content['ename'],
+                                    'value': content['evalue'],
+                                    'traceback': content['traceback']
+                                })
+
+                    except Exception as e:
+                        # Ignore frequent poll timeouts to avoid log spam; emit only when verbose
                         if verbose:
-                            print(f"DEBUG: Received message type: {msg_type}")
-                        
-                        if msg_type == 'execute_result':
-                            outputs.append({
-                                'type': 'result',
-                                'data': content['data']
-                            })
-                        elif msg_type == 'stream':
-                            outputs.append({
-                                'type': 'stream',
-                                'name': content['name'],
-                                'text': content['text']
-                            })
-                        elif msg_type == 'error':
-                            outputs.append({
-                                'type': 'error',
-                                'name': content['ename'],
-                                'value': content['evalue'],
-                                'traceback': content['traceback']
-                            })
-                        elif msg_type == 'status' and content['execution_state'] == 'idle':
-                            print("DEBUG: Execution completed normally")
-                            break
-                            
-                except Exception as e:
-                    # Ignore frequent poll timeouts to avoid log spam; emit only when verbose
-                    if verbose:
-                        print(f"DEBUG: Exception in message handling: {e}, msg")
-                    continue  # Continue the loop for most exceptions
-            
-            timer.cancel()
-            
+                            print(f"DEBUG: Exception in message handling: {e}")
+                        continue
+            finally:
+                if timer is not None:
+                    timer.cancel()
+
             # Check if we hit timeout
-            elapsed_time = time.time() - start_time
-            timed_out = elapsed_time >= self.timeout or timeout_state["occurred"]
-            
+            timed_out = timeout_state["occurred"]
+            if not timed_out and execution_started:
+                timed_out = (time.time() - start_time) >= self.timeout
+
             if verbose:
-                print(f"DEBUG: Elapsed time: {elapsed_time:.2f}s, Timeout occurred: {timeout_state['occurred']}, Timed out: {timed_out}")
+                if execution_started:
+                    print(f"DEBUG: Elapsed execution time: {time.time() - start_time:.2f}s, Timed out: {timed_out}")
+                else:
+                    print(f"DEBUG: Kernel never became busy. Timed out: {timed_out}")
                 print(f"DEBUG: Number of outputs collected: {len(outputs)}")
-            
+
             # If we hit timeout, add timeout error
             if timed_out:
                 outputs.append({

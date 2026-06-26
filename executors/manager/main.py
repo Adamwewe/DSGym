@@ -136,6 +136,38 @@ async def _wait_for_container(request: Request, queue: asyncio.Queue, allocation
             except Exception:
                 pass
 
+async def _recover_stuck_containers(container_type: str) -> int:
+    """Health-check every allocated container of *container_type*.
+
+    Containers that fail the health check are assumed to be zombie allocations
+    (the client process died without calling /deallocate).  They are restarted
+    and returned to the available queue so waiting callers can proceed.
+
+    Returns the number of containers successfully recovered.
+    """
+    recovered = 0
+    for container_id in list(allocated_containers):
+        if config.get_type(container_id) != container_type:
+            continue
+        # Guard against a concurrent recovery already handling this container.
+        if container_id not in allocated_containers:
+            continue
+        try:
+            await ready_check_client.get(f"{config.get_url(container_id)}/health")
+            # Healthy → leave it alone; its owner is still alive.
+        except Exception:
+            # Unresponsive → treat as a zombie allocation: restart and re-queue.
+            print(f"🔄 Recovering stuck container {container_id} (failed health check)")
+            try:
+                await ready_check_client.post(f"{config.get_url(container_id)}/restart")
+            except Exception as restart_err:
+                print(f"⚠️  Could not restart container {container_id}: {restart_err}")
+            allocated_containers.discard(container_id)
+            available_containers_by_type[container_type].put_nowait(container_id)
+            recovered += 1
+    return recovered
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -164,7 +196,27 @@ async def allocate_container(request: Request, container_type: Optional[str] = N
 
     # Slow path: wait on the first matching queue, aborting if client disconnects
     type_name, queue = queues[0]
-    container_id = await _wait_for_container(request, queue, allocation_timeout)
+    try:
+        container_id = await _wait_for_container(request, queue, allocation_timeout)
+    except asyncio.TimeoutError:
+        # Recover: health-check all allocated containers of this type and restart
+        # any that are unresponsive (zombie allocations from crashed processes).
+        # Recovered containers are re-queued so this caller — and other waiters —
+        # can pick them up.
+        recovered = await _recover_stuck_containers(type_name)
+        if recovered:
+            print(f"♻️  Recovered {recovered} stuck container(s) of type '{type_name}' — retrying allocation")
+            try:
+                container_id = await asyncio.wait_for(queue.get(), timeout=2.0)
+                allocated_containers.add(container_id)
+                return AllocationResponse(container_id=container_id)
+            except asyncio.TimeoutError:
+                pass  # Another waiter grabbed it first; fall through to 503
+        raise HTTPException(
+            status_code=503,
+            detail=f"No container of type '{type_name}' became available within {allocation_timeout}s — "
+                   f"all {len(config.get_containers_by_type(type_name))} containers are busy and healthy",
+        )
     if container_id is None:
         raise HTTPException(status_code=499, detail="Client disconnected during allocation")
     allocated_containers.add(container_id)
@@ -302,7 +354,7 @@ async def reset_all():
     for container_id in list(config.config.keys()):
         container_id = int(container_id)
         try:
-            await make_request(http_client, "POST", container_id, "restart")
+            await make_request(ready_check_client, "POST", container_id, "restart")
             restarted.append(container_id)
         except Exception as e:
             failed.append({"container_id": container_id, "error": str(e)})

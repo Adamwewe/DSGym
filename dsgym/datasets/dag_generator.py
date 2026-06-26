@@ -97,7 +97,6 @@ def generate_reasoning_dag(
     )
     if _supports_json_object_format(model):
         kwargs["response_format"] = {"type": "json_object"}
-
     response = litellm.completion(**kwargs)
 
     raw = response.choices[0].message.content
@@ -175,7 +174,6 @@ def generate_dags_for_sample(
 
     if not question:
         raise ValueError("Sample 'extra_info' must contain a non-empty 'question' field")
-
     reasoning = generate_reasoning_dag(question, context, model=model)
     implementation = generate_implementation_dag(
         question, context, reasoning, model=model

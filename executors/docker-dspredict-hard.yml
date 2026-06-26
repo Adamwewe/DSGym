@@ -11,7 +11,7 @@ services:
     - HOST_PORT=60000
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=3600
+    - EXECUTION_TIMEOUT=7200
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -19,8 +19,8 @@ services:
     - container.id=0
     - container.port=60000
     - container.type=executor-kaggle
-    mem_limit: 28G
-    cpus: 15.0
+    mem_limit: 6G
+    cpus: 3.0
     extra_hosts:
     - host.docker.internal:host-gateway
     deploy:
@@ -47,7 +47,7 @@ services:
     - HOST_PORT=60001
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=3600
+    - EXECUTION_TIMEOUT=7200
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -55,8 +55,8 @@ services:
     - container.id=1
     - container.port=60001
     - container.type=executor-kaggle
-    mem_limit: 28G
-    cpus: 15.0
+    mem_limit: 6G
+    cpus: 3.0
     extra_hosts:
     - host.docker.internal:host-gateway
     deploy:
@@ -83,7 +83,7 @@ services:
     - HOST_PORT=60002
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=3600
+    - EXECUTION_TIMEOUT=7200
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -91,8 +91,8 @@ services:
     - container.id=2
     - container.port=60002
     - container.type=executor-kaggle
-    mem_limit: 28G
-    cpus: 15.0
+    mem_limit: 6G
+    cpus: 3.0
     extra_hosts:
     - host.docker.internal:host-gateway
     deploy:
@@ -119,7 +119,7 @@ services:
     - HOST_PORT=60003
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=3600
+    - EXECUTION_TIMEOUT=7200
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -127,8 +127,8 @@ services:
     - container.id=3
     - container.port=60003
     - container.type=executor-kaggle
-    mem_limit: 28G
-    cpus: 15.0
+    mem_limit: 6G
+    cpus: 3.0
     extra_hosts:
     - host.docker.internal:host-gateway
     deploy:
@@ -155,7 +155,7 @@ services:
     - HOST_PORT=60004
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
-    - EXECUTION_TIMEOUT=3600
+    - EXECUTION_TIMEOUT=7200
     - WORKSPACE_FOLDER=/data
     - SUBMISSION_DIR=/submission
     restart: unless-stopped
@@ -163,8 +163,8 @@ services:
     - container.id=4
     - container.port=60004
     - container.type=executor-kaggle
-    mem_limit: 28G
-    cpus: 15.0
+    mem_limit: 6G
+    cpus: 3.0
     extra_hosts:
     - host.docker.internal:host-gateway
     deploy:

@@ -48,6 +48,12 @@ def add_eval_parser(subparsers):
                             "When true, the agent self-generates and revises its analysis plan. "
                             "When false (default), uses the standard system prompt for baseline comparison. "
                             "Accepts true/false.")
+    parser.add_argument("--prompt", type=str, default="default", metavar="VARIANT",
+                       help="System prompt variant to use when --dags is true (DSPredict only). "
+                            "'default' uses SYSTEM_PROMPT_DAG_DSPREDICT. "
+                            "Other options: adaptive-revision, lightweight, structured, reasoning-only, "
+                            "reasoning-focused, reasoning-implementation-strict, detailed, "
+                            "expert-agentic, problem-decomposition, data-quality-methods.")
     parser.add_argument("--sample-n", type=int, default=None, metavar="N",
                        help="(DSBio/DSPredict) Randomly sample N tasks from the source split and save "
                             "as dsbio_sampled.json / dspredict_sampled.json before evaluating. "
@@ -77,6 +83,11 @@ def add_eval_parser(subparsers):
     parser.add_argument("--api-key", type=str, default=None,
                        help="API key (uses environment variable if not provided)")
     
+    # Run tagging
+    parser.add_argument("--tag", type=str, default=None,
+                       help="Optional tag to label this run (e.g. 'no-cuda', 'baseline'). "
+                            "Included in JSON/CSV output for easy cross-run filtering.")
+    
     return parser
 
 
@@ -92,6 +103,8 @@ def run_eval(args) -> int:
     is_dspredict = "dspredict" in args.dataset
     if is_dsbio or is_dspredict:
         mode = "iterative DAG" if args.dags else "standard (no DAG)"
+        if is_dspredict and args.dags and args.prompt != "default":
+            mode += f" [{args.prompt}]"
         print(f"System prompt mode: {mode}")
 
     # Set default max_workers based on backend
@@ -173,6 +186,8 @@ def run_eval(args) -> int:
             dataset_config["virtual_data_root"] = "/data"
             load_config["split"] = split
             load_config["generate_dags"] = args.dags
+            if args.dags:
+                load_config["prompt_variant"] = args.prompt
             dataset_name = "dspredict"
             dataset = DatasetRegistry.load(dataset_name, **dataset_config)
 
@@ -221,6 +236,8 @@ def run_eval(args) -> int:
     run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
     if (is_dsbio or is_dspredict) and not args.run_name:
         run_name += "_dags" if args.dags else "_nodags"
+        if is_dspredict and args.dags and args.prompt != "default":
+            run_name += f"_{args.prompt}"
     config = EvaluationConfig(
         model_name=args.model,
         backend_type=args.backend,
@@ -230,7 +247,11 @@ def run_eval(args) -> int:
         max_turns=args.max_turns,
         temperature=args.temperature,
         max_workers=args.max_workers,
-        extra_config={"generate_dags": args.dags} if is_dsbio or is_dspredict else {}
+        tag=args.tag,
+        extra_config={
+            "generate_dags": args.dags,
+            **({"prompt_variant": args.prompt} if is_dspredict and args.dags else {})
+        } if is_dsbio or is_dspredict else {}
     )
     
     # Run evaluation

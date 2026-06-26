@@ -150,6 +150,9 @@ class EvaluationConfig:
     seed: int = 42
     extra_config: Dict[str, Any] = field(default_factory=dict)
     
+    # Run tag for cross-run identification
+    tag: Optional[str] = None
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -172,6 +175,7 @@ class EvaluationConfig:
             "batch_size": self.batch_size,
             "seed": self.seed,
             "extra_config": self.extra_config,
+            "tag": self.tag,
         }
 
 
@@ -510,6 +514,8 @@ def save_evaluation_results(
     if config is not None:
         aggregated_metrics["model_name"] = config.model_name
         aggregated_metrics["use_dags"] = config.extra_config.get("generate_dags", False)
+        if config.tag is not None:
+            aggregated_metrics["tag"] = config.tag
 
     metrics_file = output_dir / f"{run_name}_metrics.json"
     with open(metrics_file, 'w', encoding='utf-8') as f:
@@ -521,10 +527,12 @@ def save_evaluation_results(
     summary_data = []
     model_name_val = config.model_name if config is not None else ""
     use_dags_val = config.extra_config.get("generate_dags", False) if config is not None else False
+    tag_val = config.tag if config is not None else None
     for result in results:
         summary_row = {
             "model_name": model_name_val,
             "use_dags": use_dags_val,
+            "tag": tag_val,
             "sample_id": result.sample_id,
             "dataset_name": result.dataset_name,
             "query": result.query[:100] + "..." if len(result.query) > 100 else result.query,

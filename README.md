@@ -582,17 +582,57 @@ writing any code the agent emits two self-contained DAGs — a high-level
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dags true\|false` | `false` | Enable DAG-guided prompts for DSPredict |
+| `--prompt VARIANT` | `default` | System prompt variant to use when `--dags true` (see below) |
 | `--dag-model MODEL` | `gpt-4o` | Model used for post-hoc DAG generation (Python API only) |
 
 ```bash
 # Baseline (no DAGs)
 dsgym eval --dataset dspredict-hard --dags false --model gpt-4o
 
-# DAG-guided run
+# DAG-guided run with default prompt (SYSTEM_PROMPT_DAG_DSPREDICT)
 dsgym eval --dataset dspredict-hard --dags true --model gpt-4o
+
+# DAG-guided run with a prompt variant
+dsgym eval --dataset dspredict-hard --dags true --prompt adaptive-revision --model gpt-4o
 
 # DAG-guided run on a subsample (see below)
 dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+```
+
+### Prompt variants (`--dags true` only)
+
+When `--dags true` is set, `--prompt` selects which system prompt the agent receives.
+`--prompt default` (the default) uses `SYSTEM_PROMPT_DAG_DSPREDICT` from
+`dsgym/datasets/prompts/system_prompts.py` — the same prompt used in all previous
+DAG runs. All other variants come from `dsgym/datasets/prompt_variants.py`.
+
+| Variant name | Characteristics |
+|---|---|
+| `default` | `SYSTEM_PROMPT_DAG_DSPREDICT` — full reasoning + implementation DAG, 5 revisions, submission validation |
+| `adaptive-revision` | Extended revision grammar with proactive triggers; designed for models that need less structural scaffolding |
+| `lightweight` | Minimal guidance, no explicit DAG requirement; best for fast prototyping |
+| `structured` | Clear step-by-step format, optional implementation DAG |
+| `reasoning-only` | Strict reasoning DAG (5–8 nodes), no implementation DAG |
+| `reasoning-focused` | Reasoning DAG with moderate implementation guidance |
+| `reasoning-implementation-strict` | Both DAGs strictly enforced, rigid step ordering |
+| `detailed` | Long, expert-level prompt with extensive methodology guidance |
+| `expert-agentic` | Full agentic loop with explicit self-evaluation gates |
+| `problem-decomposition` | Emphasis on problem decomposition before any ML decisions |
+| `data-quality-methods` | Prioritises data quality assessment and validation methodology |
+
+`--prompt` is silently ignored when `--dags false` — the standard `SYSTEM_PROMPT_DSPREDICT` is always used in that case.
+
+Output files are automatically suffixed with the variant name when it differs from `default`:
+
+```
+# --prompt default  →  ..._dags.json
+# --prompt adaptive-revision  →  ..._dags_adaptive-revision.json
+```
+
+**Python API:**
+
+```python
+samples = dataset.load(split="hard", limit=10, generate_dags=True, prompt_variant="adaptive-revision")
 ```
 
 ### Python API
@@ -604,6 +644,9 @@ dataset = DatasetRegistry.load("dspredict")
 
 # DAG system prompt injected automatically — no upfront API calls
 samples = dataset.load(split="hard", limit=10, generate_dags=True)
+
+# Use a prompt variant
+samples = dataset.load(split="hard", limit=10, generate_dags=True, prompt_variant="adaptive-revision")
 
 # Post-hoc DAG generation for a loaded sample
 reasoning = dataset.generate_dag(samples[0], dag_type="reasoning", model="gpt-4o")

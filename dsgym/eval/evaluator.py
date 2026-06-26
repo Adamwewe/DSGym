@@ -184,9 +184,12 @@ class Evaluator:
             # Model slug: sanitise model name (take last path component, replace non-alphanum)
             model_slug = re.sub(r"[^a-zA-Z0-9]", "_", config.model_name.split("/")[-1])
 
-            # DAG suffix
+            # DAG suffix (includes prompt variant when not the default)
             dags = config.extra_config.get("generate_dags", False)
             dag_suffix = "dags" if dags else "nodags"
+            prompt_variant = config.extra_config.get("prompt_variant", "default")
+            if dags and prompt_variant and prompt_variant != "default":
+                dag_suffix += f"_{prompt_variant}"
 
             # Build filename
             parts = [str(challenge_name)]

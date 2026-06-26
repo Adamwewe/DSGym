@@ -12,6 +12,7 @@ from ..base import BaseDataset
 from ..registry import register_dataset
 from ..utils import apply_limit_and_start, validate_file_exists, create_standard_task
 from ..prompts import SYSTEM_PROMPT_DSPREDICT, SYSTEM_PROMPT_DAG_DSPREDICT
+from ..prompt_variants import get_variant
 from dsgym.datasets.config import get_task_path, RAW_DATA_DIR
 from .kaggle_downloader import KaggleChallengeDownloader
 
@@ -83,6 +84,7 @@ class DSPredictDataset(BaseDataset):
         split: str = "easy", 
         start_index: int = 0,
         generate_dags: bool = False,
+        prompt_variant: str = "default",
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -95,6 +97,10 @@ class DSPredictDataset(BaseDataset):
             generate_dags: If True, switch to the iterative DAG system prompt so the
                 agent self-generates and self-revises its reasoning and implementation
                 DAGs inline during solving. No upfront API calls are made.
+            prompt_variant: When generate_dags is True, selects the system prompt to use.
+                "default" uses SYSTEM_PROMPT_DAG_DSPREDICT. Any other value is looked up
+                in the prompt_variants registry by name (e.g. "adaptive-revision").
+                Ignored when generate_dags is False.
             **kwargs: Additional loading parameters
             
         Returns:
@@ -179,14 +185,23 @@ class DSPredictDataset(BaseDataset):
             }
             
             # Create standardized sample
-            active_system_prompt = SYSTEM_PROMPT_DAG_DSPREDICT if generate_dags else SYSTEM_PROMPT_DSPREDICT
+            # Resolve system prompt: variants only apply when DAGs are enabled
+            if generate_dags and prompt_variant != "default":
+                variant = get_variant(prompt_variant)
+                if variant is None:
+                    raise ValueError(
+                        f"Unknown prompt variant '{prompt_variant}'. "
+                        f"Use 'default' or one of: {', '.join(['adaptive-revision', 'lightweight', 'structured', 'reasoning-only', 'reasoning-focused', 'reasoning-implementation-strict', 'detailed', 'expert-agentic', 'problem-decomposition', 'data-quality-methods'])}"
+                    )
+                active_system_prompt = variant.system_prompt_template + "\n\n" + variant.format_instructions
+            else:
+                active_system_prompt = SYSTEM_PROMPT_DAG_DSPREDICT if generate_dags else SYSTEM_PROMPT_DSPREDICT
             standard_sample = create_standard_task(
                 prompt_content=user_content,
                 ground_truth="",  # DSPredict competitions don't have ground truth
                 extra_info=extra_info,
                 system_prompt=active_system_prompt
             )
-            
             samples.append(standard_sample)
         
         self._samples = samples
@@ -338,7 +353,7 @@ class DSPredictDataset(BaseDataset):
             if not raw:
                 raise RuntimeError("Empty response from model")
             return _extract_json(raw)
-
+        
         if dag_type == "reasoning":
             from dsgym.datasets.dag import ReasoningDAG
             from dsgym.datasets.dag_generator import _extract_json

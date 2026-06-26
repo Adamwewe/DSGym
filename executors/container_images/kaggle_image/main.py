@@ -1,8 +1,24 @@
 import os
+import glob
 import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
 from kernel_executor import KernelExecutor
+
+# Extensions written by checkpointing agents that should not bleed across tasks
+_TMP_ARTIFACT_PATTERNS = [
+    "*.parquet", "*.pkl", "*.pickle", "*.csv", "*.npz", "*.npy",
+    "*.h5", "*.hdf5", "*.joblib", "*.json", "*.feather", "*.arrow",
+]
+
+def _cleanup_tmp_artifacts():
+    """Remove data science checkpoint files from /tmp/ left by the previous task."""
+    for pattern in _TMP_ARTIFACT_PATTERNS:
+        for path in glob.glob(f"/tmp/{pattern}"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 app = FastAPI()
 
@@ -62,7 +78,8 @@ async def ready():
 
 @app.post("/restart")
 async def restart_kernel():
-    """Non-blocking restart of the Jupyter kernel"""
+    """Non-blocking restart of the Jupyter kernel. Also cleans /tmp/ artifacts from the previous task."""
+    _cleanup_tmp_artifacts()
     try:
         result = executor.restart()
         return result

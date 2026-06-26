@@ -139,28 +139,28 @@ class DSPredictReActAgent(ReActDSAgent):
                 env.save_prediction(final_answer, filename_prefix=prefix)
 
             execution_time = time.time() - start_time
-            # # Re-read in case late allocation inside execute_code() set it after init failed
-            # container_id = env.tool_group.allocated_container
-            # if container_id is None:
-            #     print("⚠️  No container was ever allocated — cannot locate submission file")
-            #     return {
-            #         "solution": "",
-            #         "success": False,
-            #         "turns": actual_turns,
-            #         "error": "Container allocation failed — no submission file available",
-            #         "metadata": {
-            #             "model": self.model,
-            #             "backend": self.backend,
-            #             "dspredict": True,
-            #             "max_turns": self.max_turns,
-            #             "total_tokens": total_tokens,
-            #             "execution_time": execution_time,
-            #             "conversation_length": len(conversation),
-            #         },
-            #         "conversation": conversation,
-            #         "trajectory": trajectory,
-            #         "raw_result": None,
-            #     }
+            # Re-read in case late allocation inside execute_code() set it after init failed
+            container_id = env.tool_group.allocated_container
+            if container_id is None:
+                print("⚠️  No container was ever allocated — cannot locate submission file")
+                return {
+                    "solution": "",
+                    "success": False,
+                    "turns": actual_turns,
+                    "error": "Container allocation failed — no submission file available",
+                    "metadata": {
+                        "model": self.model,
+                        "backend": self.backend,
+                        "dspredict": True,
+                        "max_turns": self.max_turns,
+                        "total_tokens": total_tokens,
+                        "execution_time": execution_time,
+                        "conversation_length": len(conversation),
+                    },
+                    "conversation": conversation,
+                    "trajectory": trajectory,
+                    "raw_result": None,
+                }
             container_dir = os.path.join(self.submission_dir, f"container_{container_id:03d}")
             submission_file = os.path.join(container_dir, "submission.csv")
             submission_path = ""

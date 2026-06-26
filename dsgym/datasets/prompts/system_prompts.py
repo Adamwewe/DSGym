@@ -127,6 +127,7 @@ Important rules:
 - Code execution is continuous - variables and data loaded in previous steps remain available for subsequent steps. Do not need to reload the same dataset or variables.
 - Your code can only do one step at a time even when multiple steps are planned. Perform the next step based on the previous step's results.
 - After you produce the submission.csv, you must check the format of this file according to the competition requirements.
+- **Checkpoint all significant intermediate results to `/tmp/` immediately after producing them** (e.g. `df.to_parquet('/tmp/train_features.parquet')`). At the start of each step, check whether the checkpoint exists and load from it instead of recomputing. This protects work against kernel restarts caused by cell timeouts.
 - **Submission format validation (mandatory before finishing):** run the following check and fix any errors before submitting your final answer:
   ```python
   import pandas as pd
@@ -313,6 +314,7 @@ print("Submission OK")
 - Max **5** plan revisions. After all revisions, submit the best result so far.
 - No plotting. Variables persist across steps — do not reload them.
 - Save predictions to `/submission/submission.csv`. Run validation before `<answer>`.
+- **Checkpoint all significant intermediate results to `/tmp/` immediately after producing them** (e.g. `df.to_parquet('/tmp/train_features.parquet')`). At the start of each step, check whether the checkpoint exists and load from it instead of recomputing. This protects work against kernel restarts caused by cell timeouts.
 """
 
 

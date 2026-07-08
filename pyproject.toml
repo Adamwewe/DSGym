@@ -58,6 +58,8 @@ dependencies = [
     "jupyter>=1.1.1",
     "nbformat>=5.10.4",
     "ijson>=3.5.0",
+    "sentence-transformers >= 5.6.0",
+    "wordcloud>=1.9.6",
 ]
 
 [tool.uv]

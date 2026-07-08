@@ -864,6 +864,62 @@ dsgym resubmit \
 - **Diverse Domains**: From general/applied ds to scientific ds tasks, covering various data science applications
 - **Varied Complexity**: Tasks ranging from basic data analysis to complex scientific discovery
 
+## DAG Prompting: Research Findings
+
+Our trace analysis on DSPredict-Hard (54 Kaggle competitions) reveals important insights about DAG-guided reasoning for coding agents.
+
+### Key Finding: DAGs Guide Sophisticated Solutions
+
+| Metric | DAGs | NoDags | Interpretation |
+|--------|------|--------|----------------|
+| GPT-5.1 Success Rate | 62.5% | **75.3%** | NoDags wins overall |
+| Timeouts | **36.4%** | 31.5% | DAGs hit compute limits more |
+| Score when both succeed | **18 wins** | 17 wins | Quality is equivalent |
+
+**The paradox explained**: DAGs don't produce *worse* solutions—they produce *more sophisticated* solutions that timeout on limited compute (8GB GPU). When both approaches complete successfully, DAG-guided runs win as often as non-DAG runs.
+
+### Evidence
+
+```
+When both DAGs and NoDags succeed on same competition:
+├── DAGs score higher: 18 competitions
+├── NoDags score higher: 17 competitions  
+└── Essentially tied: 5 competitions
+
+Timeout rates:
+├── DAGs: 36.4% (guided toward CV, ensembles, hyperparameter tuning)
+└── NoDags: 31.5% (simpler, faster approaches)
+```
+
+### Semantic Analysis
+
+Implementation DAGs provide **40-60% better code grounding** than Reasoning DAGs alone:
+
+| Model | R→Code Similarity | I→Code Similarity | Improvement |
+|-------|-------------------|-------------------|-------------|
+| GPT-5.1 | 0.067 | 0.094 | +40% |
+| Claude | 0.050 | 0.080 | +60% |
+| DeepSeek | 0.081 | 0.113 | +39% |
+
+### Recommendations
+
+| Scenario | Recommendation |
+|----------|----------------|
+| **Limited compute** (≤8GB GPU) | Use `nodags` mode for higher success rate |
+| **Adequate compute** (≥24GB GPU) | Use `dags` mode for potentially higher quality |
+| **Claude models** | Always use `dags` (provides termination structure) |
+| **Research/cluster** | DAGs are worth pursuing with sufficient timeout |
+
+### Compute Requirements for DAG Mode
+
+DAG-guided agents attempt more sophisticated approaches (cross-validation, ensembles, hyperparameter search). Recommended minimums:
+
+- **GPU Memory**: 24GB+ (vs 8GB for nodags)
+- **Timeout**: 7200s+ (vs 3600s for nodags)
+- **Containers**: 3-5 with higher memory allocation
+
+See `evaluation_results/analysis_deepseek.md` for detailed trace analysis.
+
 ## Resources
 
 - 📄 **Paper**: [DSGym: A Holistic Framework for Evaluating and Training Data Science Agents](https://arxiv.org/pdf/2601.16344)

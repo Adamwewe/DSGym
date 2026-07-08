@@ -275,16 +275,42 @@ class AllocatedCodeEnv(BaseTextEnv):
             print(f"⚠️ Warning: Failed to deallocate container: {e}")
     
     def _parse_action(self, action: str) -> Optional[str]:
-        match = None
-        if action and "<python>" in action and "</python>" in action:
+        """
+        Extract executable Python code from model response.
+        
+        Supports multiple formats in priority order:
+        1. <python>CODE</python> tags (standard format)
+        2. ```python CODE ``` fenced blocks (fallback for models like DeepSeek)
+        
+        Note: If response contains only a DAG (no code), returns None.
+        This is intentional — DAG-only responses should prompt the model to include code.
+        """
+        if not action:
+            return None
+        
+        # Priority 1: <python>...</python> tags (standard format, used by most models)
+        if "<python>" in action and "</python>" in action:
             match = re.search(r"<python>(.*?)</python>", action, re.DOTALL)
             if match:
                 code = match.group(1)
+                # Handle nested ```python blocks inside <python> tags
                 if "```python" in code and "```" in code:
                     inner_match = re.search(r"```python(.*?)```", code, re.DOTALL)
                     if inner_match:
-                        return inner_match.group(1)
-                return code
+                        return inner_match.group(1).strip()
+                return code.strip()
+        
+        # Priority 2: ```python ... ``` fenced blocks (fallback for DeepSeek, etc.)
+        # Only use this if no <python> tags were found
+        if "```python" in action:
+            match = re.search(r"```python\s*(.*?)\s*```", action, re.DOTALL)
+            if match:
+                code = match.group(1).strip()
+                # Sanity check: must contain actual code, not just comments/whitespace
+                if code and any(line.strip() and not line.strip().startswith('#') 
+                               for line in code.split('\n')):
+                    return code
+        
         return None
 
     def _extract_final_answer(self, response: str) -> str:

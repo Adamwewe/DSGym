@@ -1,0 +1,225 @@
+model_name,use_dags,sample_id,dataset_name,query,ground_truth,prediction,success,execution_time,total_turns,has_ground_truth,metric_kaggle_submission
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_LANL-Earthquake-Prediction_LANL-Earthquake-Prediction,dspredict,"**CHALLENGE NAME: LANL-Earthquake-Prediction**
+
+Challenge description:
+# LANL Earthquake Prediction
+...",N/A,,False,757.2451848983765,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_ashrae-energy-prediction_ashrae-energy-prediction,dspredict,"**CHALLENGE NAME: ashrae-energy-prediction**
+
+Challenge description:
+# ASHRAE - Great Energy Predict...",N/A,,False,757.2293474674225,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_career-con-2019_career-con-2019,dspredict,"**CHALLENGE NAME: career-con-2019**
+
+Challenge description:
+Compete to get your resume in front of o...",N/A,,False,756.9589734077454,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_champs-scalar-coupling_champs-scalar-coupling,dspredict,"**CHALLENGE NAME: champs-scalar-coupling**
+
+Challenge description:
+# Predicting Molecular Properties...",N/A,,False,757.1063814163208,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_data-science-bowl-2018_data-science-bowl-2018,dspredict,"**CHALLENGE NAME: data-science-bowl-2018**
+
+Challenge description:
+# 2018 Data Science Bowl: Find th...",N/A,,False,757.0938997268677,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_digit-recognizer_digit-recognizer,dspredict,"**CHALLENGE NAME: digit-recognizer**
+
+Challenge description:
+# Digit Recognizer
+
+## Competition Desc...",N/A,,False,757.2143559455872,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_elo-merchant-category-recommendation_elo-merchant-category-recommendation,dspredict,"**CHALLENGE NAME: elo-merchant-category-recommendation**
+
+Challenge description:
+Elo Merchant Catego...",N/A,,False,756.7655987739563,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_gendered-pronoun-resolution_gendered-pronoun-resolution,dspredict,"**CHALLENGE NAME: gendered-pronoun-resolution**
+
+Challenge description:
+Gendered Pronoun Resolution
+...",N/A,,False,757.0860576629639,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_geolifeclef-2024_geolifeclef-2024,dspredict,"**CHALLENGE NAME: geolifeclef-2024**
+
+Challenge description:
+# GeoLifeCLEF 2024 @ LifeCLEF & CVPR-FG...",N/A,,False,757.0138919353485,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_google-smartphone-decimeter-challenge_google-smartphone-decimeter-challenge,dspredict,"**CHALLENGE NAME: google-smartphone-decimeter-challenge**
+
+Challenge description:
+Improve high preci...",N/A,,False,756.8947095870972,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_home-credit-default-risk_home-credit-default-risk,dspredict,"**CHALLENGE NAME: home-credit-default-risk**
+
+Challenge description:
+Home Credit Default Risk
+
+Can y...",N/A,,False,756.9220216274261,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_home-data-for-ml-course_home-data-for-ml-course,dspredict,"**CHALLENGE NAME: home-data-for-ml-course**
+
+Challenge description:
+# Housing Prices Competition for...",N/A,,False,757.0842473506927,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_humpback-whale-identification_humpback-whale-identification,dspredict,"**CHALLENGE NAME: humpback-whale-identification**
+
+Challenge description:
+After centuries of intense...",N/A,,False,757.1044628620148,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_ieee-fraud-detection_ieee-fraud-detection,dspredict,"**CHALLENGE NAME: ieee-fraud-detection**
+
+Challenge description:
+Imagine standing at the check-out c...",N/A,,False,756.7245516777039,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_imaterialist-challenge-fashion-2018_imaterialist-challenge-fashion-2018,dspredict,"**CHALLENGE NAME: imaterialist-challenge-fashion-2018**
+
+Challenge description:
+iMaterialist Challen...",N/A,,False,757.1658780574799,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_imaterialist-challenge-furniture-2018_imaterialist-challenge-furniture-2018,dspredict,"**CHALLENGE NAME: imaterialist-challenge-furniture-2018**
+
+Challenge description:
+Description
+As sho...",N/A,,False,756.4295251369476,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_inclusive-images-challenge_inclusive-images-challenge,dspredict,"**CHALLENGE NAME: inclusive-images-challenge**
+
+Challenge description:
+# Inclusive Images Challenge
+...",N/A,,False,757.0200710296631,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_liverpool-ion-switching_liverpool-ion-switching,dspredict,"**CHALLENGE NAME: liverpool-ion-switching**
+
+Challenge description:
+University of Liverpool - Ion Sw...",N/A,,False,756.9755430221558,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_m5-forecasting-accuracy_m5-forecasting-accuracy,dspredict,"**CHALLENGE NAME: m5-forecasting-accuracy**
+
+Challenge description:
+Note: This is one of the two com...",N/A,,False,757.1246209144592,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_m5-forecasting-uncertainty_m5-forecasting-uncertainty,dspredict,"**CHALLENGE NAME: m5-forecasting-uncertainty**
+
+Challenge description:
+# M5 Forecasting - Uncertaint...",N/A,,False,756.884459733963,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_march-machine-learning-mania-2023_march-machine-learning-mania-2023,dspredict,"**CHALLENGE NAME: march-machine-learning-mania-2023**
+
+Challenge description:
+Forecast the 2023 NCAA...",N/A,,False,757.1587972640991,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_march-machine-learning-mania-2025_march-machine-learning-mania-2025,dspredict,"**CHALLENGE NAME: march-machine-learning-mania-2025**
+
+Challenge description:
+Forecast the 2025 NCAA...",N/A,,False,757.1229093074799,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_mens-machine-learning-competition-2018_mens-machine-learning-competition-2018,dspredict,"**CHALLENGE NAME: mens-machine-learning-competition-2018**
+
+Challenge description:
+# Google Cloud & ...",N/A,,False,757.1253213882446,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_mens-machine-learning-competition-2019_mens-machine-learning-competition-2019,dspredict,"**CHALLENGE NAME: mens-machine-learning-competition-2019**
+
+Challenge description:
+# Google Cloud & ...",N/A,,False,757.0732884407043,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_mens-march-mania-2022_mens-march-mania-2022,dspredict,"**CHALLENGE NAME: mens-march-mania-2022**
+
+Challenge description:
+March Machine Learning Mania 2022 ...",N/A,,False,1.0071492195129395,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_microsoft-malware-prediction_microsoft-malware-prediction,dspredict,"**CHALLENGE NAME: microsoft-malware-prediction**
+
+Challenge description:
+# Microsoft Malware Predict...",N/A,,False,0.8129286766052246,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_nlp-getting-started_nlp-getting-started,dspredict,"**CHALLENGE NAME: nlp-getting-started**
+
+Challenge description:
+# Natural Language Processing with D...",N/A,,False,0.8027312755584717,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_novozymes-enzyme-stability-prediction_novozymes-enzyme-stability-prediction,dspredict,"**CHALLENGE NAME: novozymes-enzyme-stability-prediction**
+
+Challenge description:
+# Novozymes Enzyme...",N/A,,False,0.7037398815155029,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_open-problems-single-cell-perturbations_open-problems-single-cell-perturbations,dspredict,"**CHALLENGE NAME: open-problems-single-cell-perturbations**
+
+Challenge description:
+# Open Problems ...",N/A,,False,0.6311080455780029,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_otto-recommender-system_otto-recommender-system,dspredict,"**CHALLENGE NAME: otto-recommender-system**
+
+Challenge description:
+# OTTO – Multi-Objective Recomme...",N/A,,False,0.8873448371887207,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_pku-autonomous-driving_pku-autonomous-driving,dspredict,"**CHALLENGE NAME: pku-autonomous-driving**
+
+Challenge description:
+# Peking University/Baidu - Auton...",N/A,,False,0.9430928230285645,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_planttraits2024_planttraits2024,dspredict,"**CHALLENGE NAME: planttraits2024**
+
+Challenge description:
+# Uncovering the biosphere: Predicting 6...",N/A,,False,0.8574252128601074,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_predict-ai-model-runtime_predict-ai-model-runtime,dspredict,"**CHALLENGE NAME: predict-ai-model-runtime**
+
+Challenge description:
+# Google - Fast or Slow? Predic...",N/A,,False,0.8217856884002686,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_recruit-restaurant-visitor-forecasting_recruit-restaurant-visitor-forecasting,dspredict,"**CHALLENGE NAME: recruit-restaurant-visitor-forecasting**
+
+Challenge description:
+Recruit Restauran...",N/A,,False,0.9070782661437988,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_rsna-pneumonia-detection-challenge_rsna-pneumonia-detection-challenge,dspredict,"**CHALLENGE NAME: rsna-pneumonia-detection-challenge**
+
+Challenge description:
+# RSNA Pneumonia Dete...",N/A,,False,1.0893046855926514,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_santander-customer-transaction-prediction_santander-customer-transaction-prediction,dspredict,"**CHALLENGE NAME: santander-customer-transaction-prediction**
+
+Challenge description:
+Santander Cust...",N/A,,False,1.154994010925293,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_santander-value-prediction-challenge_santander-value-prediction-challenge,dspredict,"**CHALLENGE NAME: santander-value-prediction-challenge**
+
+Challenge description:
+Santander Value Pre...",N/A,,False,1.1759428977966309,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_siim-acr-pneumothorax-segmentation_siim-acr-pneumothorax-segmentation,dspredict,"**CHALLENGE NAME: siim-acr-pneumothorax-segmentation**
+
+Challenge description:
+# SIIM-ACR Pneumothor...",N/A,,False,1.2232840061187744,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_sp-society-camera-model-identification_sp-society-camera-model-identification,dspredict,"**CHALLENGE NAME: sp-society-camera-model-identification**
+
+Challenge description:
+Competition Host:...",N/A,,False,1.2555739879608154,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_spaceship-titanic_spaceship-titanic,dspredict,"**CHALLENGE NAME: spaceship-titanic**
+
+Challenge description:
+Welcome to the year 2912, where your d...",N/A,,False,1.5089669227600098,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_stanford-covid-vaccine_stanford-covid-vaccine,dspredict,"**CHALLENGE NAME: stanford-covid-vaccine**
+
+Challenge description:
+# OpenVaccine: COVID-19 mRNA Vacc...",N/A,,False,1.396230697631836,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_statoil-iceberg-classifier-challenge_statoil-iceberg-classifier-challenge,dspredict,"**CHALLENGE NAME: statoil-iceberg-classifier-challenge**
+
+Challenge description:
+Statoil/C-CORE Iceb...",N/A,,False,1.5380311012268066,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_store-sales-time-series-forecasting_store-sales-time-series-forecasting,dspredict,"**CHALLENGE NAME: store-sales-time-series-forecasting**
+
+Challenge description:
+# Store Sales - Time...",N/A,,False,1.470205545425415,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_talkingdata-adtracking-fraud-detection_talkingdata-adtracking-fraud-detection,dspredict,"**CHALLENGE NAME: talkingdata-adtracking-fraud-detection**
+
+Challenge description:
+TalkingData AdTra...",N/A,,False,1.5600571632385254,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_tensorflow-speech-recognition-challenge_tensorflow-speech-recognition-challenge,dspredict,"**CHALLENGE NAME: tensorflow-speech-recognition-challenge**
+
+Challenge description:
+# TensorFlow Spe...",N/A,,False,1.7372386455535889,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_tgs-salt-identification-challenge_tgs-salt-identification-challenge,dspredict,"**CHALLENGE NAME: tgs-salt-identification-challenge**
+
+Challenge description:
+# TGS Salt Identificat...",N/A,,False,1.764418363571167,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_trec-covid-information-retrieval_trec-covid-information-retrieval,dspredict,"**CHALLENGE NAME: trec-covid-information-retrieval**
+
+Challenge description:
+# TREC-COVID Informatio...",N/A,,False,1.7662854194641113,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_understanding_cloud_organization_understanding_cloud_organization,dspredict,"**CHALLENGE NAME: understanding_cloud_organization**
+
+Challenge description:
+Understanding Clouds fr...",N/A,,False,1.7905869483947754,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_ventilator-pressure-prediction_ventilator-pressure-prediction,dspredict,"**CHALLENGE NAME: ventilator-pressure-prediction**
+
+Challenge description:
+What do doctors do when a...",N/A,,False,1.6522760391235352,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_vsb-power-line-fault-detection_vsb-power-line-fault-detection,dspredict,"**CHALLENGE NAME: vsb-power-line-fault-detection**
+
+Challenge description:
+# VSB Power Line Fault De...",N/A,,False,1.7904894351959229,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_web-traffic-time-series-forecasting_web-traffic-time-series-forecasting,dspredict,"**CHALLENGE NAME: web-traffic-time-series-forecasting**
+
+Challenge description:
+# Web Traffic Time S...",N/A,,False,1.8084180355072021,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_womens-machine-learning-competition-2019_womens-machine-learning-competition-2019,dspredict,"**CHALLENGE NAME: womens-machine-learning-competition-2019**
+
+Challenge description:
+# Google Cloud ...",N/A,,False,1.7827377319335938,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_youtube8m-2018_youtube8m-2018,dspredict,"**CHALLENGE NAME: youtube8m-2018**
+
+Challenge description:
+# The 2nd YouTube-8M Video Understanding ...",N/A,,False,1.7279565334320068,0,False,
+fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8,True,dspredict_youtube8m-2019_youtube8m-2019,dspredict,"**CHALLENGE NAME: youtube8m-2019**
+
+Challenge description:
+# The 3rd YouTube-8M Video Understanding ...",N/A,,False,1.5416467189788818,0,False,

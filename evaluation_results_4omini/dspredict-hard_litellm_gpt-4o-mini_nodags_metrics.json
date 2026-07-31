@@ -1,0 +1,12 @@
+{
+  "total_samples": 54,
+  "successful_samples": 10,
+  "error_samples": 44,
+  "samples_with_ground_truth": 0,
+  "success_rate": 0.18518518518518517,
+  "average_execution_time": 8084.164325352068,
+  "average_turns": 13.222222222222221,
+  "error_breakdown": {},
+  "model_name": "gpt-4o-mini",
+  "use_dags": false
+}

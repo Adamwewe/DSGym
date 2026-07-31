@@ -587,3 +587,45 @@ def format_metric_display(metric_value: Any) -> str:
             return str(metric_value)
     else:
         return str(metric_value)
+
+
+def analyze_trajectory_dags(
+    trajectory: List[Dict[str, Any]],
+    compute_embeddings: bool = True,
+    embedding_model: str = "fireworks_ai/fireworks/qwen3-embedding-8b",
+    use_fallback_embeddings: bool = False,
+) -> Dict[str, Any]:
+    """
+    Analyze DAG consistency for a trajectory.
+    
+    Extracts ALL DAGs from the trajectory (not just the first), computes:
+    - R→I consistency (reasoning → implementation translation fidelity)
+    - Revision drift (how plans change across re-planning steps)
+    - Code coverage (how well generated code covers planned nodes)
+    
+    Uses Jaccard, ROUGE, and semantic embeddings for comparison.
+    
+    Args:
+        trajectory: List of turn dicts from agent execution
+        compute_embeddings: Whether to compute embedding similarities
+        embedding_model: litellm embedding model (default: Fireworks AI qwen3)
+        use_fallback_embeddings: Use sentence-transformers instead of litellm
+        
+    Returns:
+        Dictionary with DAG consistency metrics
+        
+    Example:
+        >>> result = analyze_trajectory_dags(trajectory, compute_embeddings=True)
+        >>> print(result['n_total_dags'])  # Total DAGs found
+        >>> print(result['ri_metrics']['jaccard'])  # R→I Jaccard similarity
+        >>> print(result['revision_drift'])  # List of revision drift metrics
+    """
+    from .metrics.dag_consistency import analyze_dag_consistency
+    
+    result = analyze_dag_consistency(
+        trajectory,
+        compute_embeddings=compute_embeddings,
+        embedding_model=embedding_model,
+        use_fallback_embeddings=use_fallback_embeddings,
+    )
+    return result.to_dict()

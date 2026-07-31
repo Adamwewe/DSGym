@@ -1,0 +1,27 @@
+{
+  "model_name": "claude-sonnet-4-5",
+  "backend_type": "litellm",
+  "dataset_name": "dspredict-sampled",
+  "dataset_split": "test",
+  "limit": null,
+  "start_index": 0,
+  "protocol": "multi_turn",
+  "max_turns": 15,
+  "metrics": [
+    "exact_match"
+  ],
+  "temperature": 0.0,
+  "top_p": 1.0,
+  "max_tokens": 1524,
+  "output_dir": "./evaluation_results",
+  "run_name": "dspredict-sampled_litellm_claude-sonnet-4-5_dags",
+  "save_trajectories": true,
+  "max_workers": 24,
+  "batch_size": 1,
+  "seed": 42,
+  "extra_config": {
+    "generate_dags": true
+  },
+  "timestamp": "2026-06-11T03:55:03.608081",
+  "total_samples": 35
+}

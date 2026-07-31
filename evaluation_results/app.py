@@ -36,6 +36,7 @@ COLORS = {
     "dags": "#2196F3",
     "nodags": "#FF9800",
     "dags_adaptive-revision": "#4CAF50",
+    "dags_vanilla-no-implementation": "#9C27B0",
 }
 # Human-readable labels for known model IDs (extended on the fly by discovery)
 MODEL_LABELS = {
@@ -76,7 +77,7 @@ def _model_color(model: str) -> str:
     return _COLOR_PALETTE[idx]
 
 # ── Auto-discovery: results files ─────────────────────────────────────────────
-_KNOWN_MODES     = ["dags_adaptive-revision", "dags", "nodags"]
+_KNOWN_MODES     = ["dags_vanilla-no-implementation", "dags_adaptive-revision", "dags", "nodags"]
 _KNOWN_PROVIDERS = ["fireworks_ai_", "fireworks_Qwen_", "fireworks_", "openai_"]
 
 def _discover_results_files():
@@ -124,9 +125,11 @@ def _discover_results_files():
                 model = model[len(provider):]
                 break
 
-        # Embed variant into model name so adaptive runs appear as a distinct model
+        # Embed variant into model name so adaptive/vanilla runs appear as distinct models
         if mode == "dags_adaptive-revision":
             model = f"{model} (adaptive)"
+        elif mode == "dags_vanilla-no-implementation":
+            model = f"{model} (vanilla)"
 
         key = (model, mode if mode else "nodags")
         if mode is not None:
@@ -160,7 +163,9 @@ def _discover_dag_model_configs():
             continue
         slug = m.group(1)
         # Only collect DAG-related slugs
-        if slug.endswith("_dags_adaptive-revision") or slug.endswith("_dags"):
+        if (slug.endswith("_dags_adaptive-revision")
+                or slug.endswith("_dags_vanilla-no-implementation")
+                or slug.endswith("_dags")):
             slug_set.add(slug)
 
     def _slug_to_name(raw: str) -> str:
@@ -174,6 +179,9 @@ def _discover_dag_model_configs():
         if slug.endswith("_dags_adaptive-revision"):
             base = _slug_to_name(slug[: -len("_dags_adaptive-revision")])
             model_name = f"{base} (adaptive)"
+        elif slug.endswith("_dags_vanilla-no-implementation"):
+            base = _slug_to_name(slug[: -len("_dags_vanilla-no-implementation")])
+            model_name = f"{base} (vanilla)"
         else:
             base = _slug_to_name(slug[: -len("_dags")])
             model_name = base
@@ -224,7 +232,12 @@ def _discover_per_task_runs(existing_dp, existing_dp_hard, existing_bio):
         )
         if model_name is None:
             continue
-        mode = "dags_adaptive-revision" if slug.endswith("_dags_adaptive-revision") else "dags"
+        if slug.endswith("_dags_adaptive-revision"):
+            mode = "dags_adaptive-revision"
+        elif slug.endswith("_dags_vanilla-no-implementation"):
+            mode = "dags_vanilla-no-implementation"
+        else:
+            mode = "dags"
         key  = (model_name, mode)
 
         # Skip if already covered by a results file in ALL three buckets
@@ -285,6 +298,7 @@ def _parse_dp_item(item):
         "input_tokens":   tok.get("input_tokens"),
         "output_tokens":  tok.get("output_tokens"),
         "total_tokens":   tok.get("total_tokens"),
+        "dag_tokens":     _count_traj_dag_tokens(item.get("trajectory", [])),
     }
 
 
@@ -602,7 +616,7 @@ def load_drift_records():
 
         mode = None
         slug_base = slug
-        for candidate in ["dags_adaptive-revision", "dags", "nodags"]:
+        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation", "dags", "nodags"]:
             if slug.endswith(f"_{candidate}"):
                 mode = candidate
                 slug_base = slug[: -len(f"_{candidate}")]
@@ -610,7 +624,12 @@ def load_drift_records():
         if mode is None: continue
 
         base_model = _slug_to_name(slug_base)
-        suffix = {"dags_adaptive-revision": " (adaptive)", "nodags": " (nodags)", "dags": " (dags)"}[mode]
+        suffix = {
+            "dags_adaptive-revision":      " (adaptive)",
+            "dags_vanilla-no-implementation": " (vanilla)",
+            "nodags": " (nodags)",
+            "dags":   "",
+        }[mode]
         model_full = f"{base_model}{suffix}"
 
         key = (model_full, comp)
@@ -752,7 +771,7 @@ def load_failure_analysis_records() -> list:
 
         mode      = None
         slug_base = slug
-        for candidate in ["dags_adaptive-revision", "dags", "nodags"]:
+        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation", "dags", "nodags"]:
             if slug.endswith(f"_{candidate}"):
                 mode      = candidate
                 slug_base = slug[: -len(f"_{candidate}")]
@@ -761,8 +780,12 @@ def load_failure_analysis_records() -> list:
             continue
 
         base_model = _slug_to_name(slug_base)
-        suffix     = {"dags_adaptive-revision": " (adaptive)",
-                      "nodags": " (nodags)", "dags": " (dags)"}[mode]
+        suffix     = {
+            "dags_adaptive-revision":         " (adaptive)",
+            "dags_vanilla-no-implementation": " (vanilla)",
+            "nodags": " (nodags)",
+            "dags":   "",
+        }[mode]
         model_full = f"{base_model}{suffix}"
 
         key = (model_full, comp)
@@ -803,7 +826,8 @@ def extract_traj_dags(all_data):
 
     # Source 1: bundled results files
     for (model, mode), data in all_data.items():
-        if mode not in ("dags", "dags_adaptive-revision"): continue
+        #TODO: claude hardcoded this like this, needs to be updated every time or I need to rewrite it
+        if mode not in ("dags", "dags_adaptive-revision", "dags_vanilla-no-implementation"): continue
         for row in data:
             dags = _extract_embedded_dags(row.get("trajectory", []))
             ch   = row.get("challenge") or ""
@@ -935,6 +959,47 @@ def _extract_embedded_dags(trajectory):
 
 
     return dags
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DAG token counting (tiktoken BPE)
+# ──────────────────────────────────────────────────────────────────────────────
+_TIKTOKEN_ENC = None
+
+
+def _get_tiktoken_enc():
+    """Lazily load the cl100k_base BPE encoder. Returns False if tiktoken unavailable."""
+    global _TIKTOKEN_ENC
+    if _TIKTOKEN_ENC is None:
+        try:
+            import tiktoken
+            _TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            _TIKTOKEN_ENC = False
+    return _TIKTOKEN_ENC
+
+
+def _count_traj_dag_tokens(traj) -> int:
+    """Total tiktoken count of all DAGs emitted in a trajectory (0 if none).
+
+    Uses the same extractor as the DAG Visualizer so the count matches what the
+    model actually emitted inside ```json fences or <reasoning_dag>/<implementation_dag>
+    tags. Falls back to len(json)/4 if tiktoken is unavailable.
+    """
+    if not traj:
+        return 0
+    dags = _extract_embedded_dags(traj)
+    if not dags:
+        return 0
+    enc = _get_tiktoken_enc()
+    total = 0
+    for d in dags:
+        s = json.dumps(d, ensure_ascii=False)
+        if enc:
+            total += len(enc.encode(s))
+        else:
+            total += len(s) // 4
+    return total
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1272,7 +1337,7 @@ def page_dspredict(dp_data, dp_hard_data):
                     ax.text(bar.get_x()+bar.get_width()/2, h+0.5, f"{h:.1f}",
                             ha="center", va="bottom", fontsize=10)
         handles = [mpatches.Patch(facecolor=COLORS.get(md, "#9C27B0"), label=md)
-                   for md in ["dags", "nodags", "dags_adaptive-revision"]]
+                   for md in ["dags", "nodags", "dags_adaptive-revision", "dags_vanilla-no-implementation"]]
         fig.legend(handles=handles, loc="upper right")
         plt.tight_layout(); fig_to_st(fig)
 
@@ -1361,30 +1426,59 @@ def page_dspredict(dp_data, dp_hard_data):
 
     # ── Tokens ──
     with tab_tokens:
-        st.subheader("Token Usage per Run")
-        all_rk2  = list(dp_data.keys())+list(dp_hard_data.keys())
-        all_rd2  = {**dp_data,**dp_hard_data}
-        tok_lab  = [f"{MODEL_LABELS.get(m,m)}\n{md}" for m,md in all_rk2]
-        xp2=np.arange(len(all_rk2))
-        def _avg_tok(field, dl):
-            v=[r[field] for r in dl if r.get(field) is not None]
-            return np.mean(v)/1000 if v else 0
-        fig,axes=plt.subplots(1,3,figsize=(max(28, len(all_rk2)*2.5), 12))
-        fig.suptitle("Token Usage per Run",fontsize=16,fontweight="bold")
-        for ax,(field,ylabel) in zip(axes,[("input_tokens","Input Tokens (K)"),
-                                           ("output_tokens","Output Tokens (K)"),
-                                           ("total_tokens","Total Tokens (K)")]):
-            heights=[_avg_tok(field, (dp_data.get(k) or dp_hard_data.get(k,[]))) for k in all_rk2]
-            bc=[COLORS.get(md,"#9C27B0") for _,md in all_rk2]
-            bars=ax.bar(xp2,heights,color=bc,edgecolor="white")
-            ax.set_xticks(xp2); ax.set_xticklabels(tok_lab,rotation=45, ha="right",fontsize=10)
-            ax.set_ylabel(ylabel); ax.set_title(ylabel)
-            for bar,v in zip(bars,heights):
-                if v>0: ax.text(bar.get_x()+bar.get_width()/2,v+0.3,f"{v:.1f}K",ha="center",va="bottom",fontsize=10)
-        handles=[mpatches.Patch(facecolor=COLORS.get(md,"#9C27B0"),label=md)
-                 for md in ["dags","nodags","dags_adaptive-revision"]]
-        fig.legend(handles=handles,loc="upper right")
-        plt.tight_layout(); fig_to_st(fig)
+        st.subheader("Mean Token Usage per Challenge")
+
+        all_rk2 = list(dp_data.keys()) + list(dp_hard_data.keys())
+        all_rd2 = {**dp_data, **dp_hard_data}
+
+        # ── Run selector ──────────────────────────────────────────────────────
+        run_options = [f"{MODEL_LABELS.get(m, m)} ({md})" for m, md in all_rk2]
+        sel_tok_runs = st.multiselect(
+            "Select runs to display",
+            options=run_options,
+            default=run_options,
+            key="tok_run_sel",
+        )
+        sel_rk2 = [k for k, label in zip(all_rk2, run_options) if label in sel_tok_runs]
+        if not sel_rk2:
+            st.info("Select at least one run above.")
+        else:
+            def _avg_tok(field, dl):
+                v = [r[field] for r in dl if r.get(field) is not None]
+                return np.mean(v) / 1000 if v else 0
+
+            def _avg_dag_tok(dl):
+                v = [r.get("dag_tokens") or 0 for r in dl]
+                return np.mean(v) / 1000 if v else 0
+
+            bar_specs = [
+                ("Input",  [_avg_tok("input_tokens",  all_rd2.get(k, [])) for k in sel_rk2], "#2196F3"),
+                ("Output", [_avg_tok("output_tokens", all_rd2.get(k, [])) for k in sel_rk2], "#4CAF50"),
+                ("Total",  [_avg_tok("total_tokens",  all_rd2.get(k, [])) for k in sel_rk2], "#FF9800"),
+                ("DAG",    [_avg_dag_tok(all_rd2.get(k, [])) for k in sel_rk2],              "#9C27B0"),
+            ]
+            n_runs = len(sel_rk2)
+            n_bars = len(bar_specs)
+            bw      = 0.2
+            offsets = (np.arange(n_bars) - (n_bars - 1) / 2) * bw
+
+            fig, ax = plt.subplots(figsize=(max(40, n_runs * 1.6), 30))
+            x = np.arange(n_runs)
+            for (label, heights, fc), offset in zip(bar_specs, offsets):
+                bars = ax.bar(x + offset, heights, width=bw, label=label, color=fc, edgecolor="white")
+                for bar, v in zip(bars, heights):
+                    if v > 0:
+                        ax.text(bar.get_x() + bar.get_width() / 2, v + 0.3,
+                                f"{v:.1f}K", ha="center", va="bottom", fontsize=15)
+
+            xlabels = [f"{MODEL_LABELS.get(m, m)}\n({md})" for m, md in sel_rk2]
+            ax.set_xticks(x)
+            ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=20)
+            ax.set_ylabel("Tokens (K)")
+            ax.set_title("Mean Token Usage per Challenge", fontsize=25, fontweight="bold")
+            ax.legend(title="Token type", fontsize=10)
+            plt.tight_layout()
+            fig_to_st(fig)
 
     # ── Per-Challenge ──
     with tab_challenge:
@@ -1608,6 +1702,8 @@ def _mean_embed(embedder_obj, texts):
 def _cosine(a, b):
     if a is None or b is None:
         return None
+    if a.shape != b.shape:
+        return None
     return float(np.dot(a, b))   # already unit-normalised
 
 
@@ -1618,7 +1714,15 @@ def _load_embed_cache():
     if _EMBED_CACHE_PATH.exists():
         try:
             with open(_EMBED_CACHE_PATH, "rb") as f:
-                return pickle.load(f)
+                cache = pickle.load(f)
+            # Detect the dominant embedding dimension and drop any mismatched entries
+            # so a model switch (e.g. Fireworks 4096 → MiniLM 384) never causes shape errors.
+            dims = [v.shape[0] for v in cache.values() if isinstance(v, np.ndarray)]
+            if dims:
+                dominant = max(set(dims), key=dims.count)
+                cache = {k: v for k, v in cache.items()
+                         if not isinstance(v, np.ndarray) or v.shape[0] == dominant}
+            return cache
         except Exception:
             pass
     return {}
@@ -1904,7 +2008,7 @@ def _records_fingerprint(records):
 
 
 def _drift_fingerprint():
-    """Fingerprint based on all per-task files present (dags + nodags)."""
+    """Fingerprint based on all per-task files present (dags + nodags + vanilla)."""
     fnames = sorted(
         f.name for f in RESULTS_DIR.iterdir()
         if f.suffix == ".json" and re.match(r"^.+?_\d+_.+_(dags|nodags)", f.stem)
@@ -2413,7 +2517,7 @@ def page_dag_consistency(records):
                     icon = "✅" if i_c > r_c else "❌"
                     st.write(f"{icon} **{m}** — R→Code: `{r_c:.3f}` · I→Code: `{i_c:.3f}` · Δ: `{delta:+.1f}%`")
                 else:
-                    st.write(f"🔵 **{m}** (adaptive, R only) — R→Code: `{r_c:.3f}`")
+                    st.write(f"🔵 **{m}** (R only) — R→Code: `{r_c:.3f}`")
 
     # ── Revision Patterns ─────────────────────────────────────────────────────
     with tab_rev:
@@ -2995,45 +3099,26 @@ def page_dag_consistency(records):
                     h1.markdown(f"**{cmp_m_a}** — {outcome_icons.get(oa,'')} `{oa}`")
                     h2.markdown(f"**{cmp_m_b}** — {outcome_icons.get(ob,'')} `{ob}`")
 
-                    n_cmp = st.slider("Show last N turns (each side)", 1, 20, 6, key="cmp_n_turns")
+                    n_cmp = st.slider("Show last N turns (each side)", 1, 50, 6, key="cmp_n_turns")
 
                     def _render_turns(rec, container):
                         if rec is None:
                             container.info("No run found.")
                             return
                         traj = rec.get("trajectory", [])
-                        for turn in traj[-n_cmp:]:
-                            if not isinstance(turn, dict): continue
-                            role    = turn.get("role", "")
-                            content = turn.get("content", "") or ""
-                            t_idx   = turn.get("turn", "")
-                            if role == "assistant":
-                                clean    = _strip_dag_and_code(content)
-                                is_trunc = bool(_PYTHON_OPEN_RE.search(content) and
-                                                not _PYTHON_CLOSE_RE.search(content))
-                                lbl = f"🤖 Turn {t_idx}" + (" ✂️" if is_trunc else "")
-                                with container.expander(lbl, expanded=True):
-                                    container.markdown(clean[:1500] + ("…" if len(clean) > 1500 else ""))
-                                    if is_trunc:
-                                        container.warning("Truncated")
-                            elif role == "user":
-                                info_blocks = _INFO_RE.findall(content)
-                                has_err = any(
-                                    p.search(b) for b in info_blocks
-                                    for p in [_FMT_ERROR_RE, _TIMEOUT_RE,
-                                              _SERVER_ERROR_RE, _TRACEBACK_RE]
+                        with container:
+                            for i, turn in enumerate(traj[-n_cmp:]):
+                                if not isinstance(turn, dict): continue
+                                # Reuse the full-featured renderer (reasoning, code,
+                                # output/error, DAGs) instead of the stripped-down
+                                # excerpt so the comparison shows everything, not
+                                # just the natural-language reasoning/output.
+                                _render_turn(
+                                    i, turn,
+                                    show_dags=True, show_code=True,
+                                    show_results=True, show_reasoning=True,
+                                    search_term="",
                                 )
-                                lbl = f"🔧 Env turn {t_idx}" + ("  ⚠️" if has_err else "")
-                                with container.expander(lbl, expanded=has_err):
-                                    for blk in info_blocks:
-                                        blk = blk.strip()
-                                        if not blk: continue
-                                        if any(p.search(blk) for p in
-                                               [_FMT_ERROR_RE, _TIMEOUT_RE,
-                                                _SERVER_ERROR_RE, _TRACEBACK_RE]):
-                                            container.error(blk[:600])
-                                        else:
-                                            container.code(blk[:400])
 
                     col_a, col_b = st.columns(2)
                     _render_turns(rec_a, col_a)

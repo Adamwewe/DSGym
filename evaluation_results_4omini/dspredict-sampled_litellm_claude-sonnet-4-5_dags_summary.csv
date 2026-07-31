@@ -1,0 +1,148 @@
+model_name,use_dags,sample_id,dataset_name,query,ground_truth,prediction,success,execution_time,total_turns,has_ground_truth,metric_kaggle_submission
+claude-sonnet-4-5,True,dspredict_stanford-covid-vaccine_stanford-covid-vaccine,dspredict,"**CHALLENGE NAME: stanford-covid-vaccine**
+
+Challenge description:
+# OpenVaccine: COVID-19 mRNA Vacc...",N/A,,False,3894.630891561508,15,False,
+claude-sonnet-4-5,True,dspredict_gendered-pronoun-resolution_gendered-pronoun-resolution,dspredict,"**CHALLENGE NAME: gendered-pronoun-resolution**
+
+Challenge description:
+Gendered Pronoun Resolution
+...",N/A,./submissions/container_007/gendered-pronoun-resolution_7_20260611_003002_submission.csv,True,177.520765542984,12,False,
+claude-sonnet-4-5,True,dspredict_ashrae-energy-prediction_ashrae-energy-prediction,dspredict,"**CHALLENGE NAME: ashrae-energy-prediction**
+
+Challenge description:
+# ASHRAE - Great Energy Predict...",N/A,,False,8283.0610871315,15,False,
+claude-sonnet-4-5,True,dspredict_understanding_cloud_organization_understanding_cloud_organization,dspredict,"**CHALLENGE NAME: understanding_cloud_organization**
+
+Challenge description:
+Understanding Clouds fr...",N/A,,False,4393.874960899353,15,False,
+claude-sonnet-4-5,True,dspredict_liverpool-ion-switching_liverpool-ion-switching,dspredict,"**CHALLENGE NAME: liverpool-ion-switching**
+
+Challenge description:
+University of Liverpool - Ion Sw...",N/A,./submissions/container_004/liverpool-ion-switching_4_20260611_031837_submission.csv,True,10292.68153166771,15,False,
+claude-sonnet-4-5,True,dspredict_imaterialist-challenge-furniture-2018_imaterialist-challenge-furniture-2018,dspredict,"**CHALLENGE NAME: imaterialist-challenge-furniture-2018**
+
+Challenge description:
+Description
+As sho...",N/A,./submissions/container_005/imaterialist-challenge-furniture-2018_5_20260611_023628_submission.csv,True,7763.491302251816,14,False,0.94586
+claude-sonnet-4-5,True,dspredict_imaterialist-challenge-fashion-2018_imaterialist-challenge-fashion-2018,dspredict,"**CHALLENGE NAME: imaterialist-challenge-fashion-2018**
+
+Challenge description:
+iMaterialist Challen...",N/A,./submissions/container_003/imaterialist-challenge-fashion-2018_3_20260611_003553_submission.csv,True,527.8305130004883,15,False,0.35135
+claude-sonnet-4-5,True,dspredict_geolifeclef-2024_geolifeclef-2024,dspredict,"**CHALLENGE NAME: geolifeclef-2024**
+
+Challenge description:
+# GeoLifeCLEF 2024 @ LifeCLEF & CVPR-FG...",N/A,,False,359.26076006889343,15,False,
+claude-sonnet-4-5,True,dspredict_elo-merchant-category-recommendation_elo-merchant-category-recommendation,dspredict,"**CHALLENGE NAME: elo-merchant-category-recommendation**
+
+Challenge description:
+Elo Merchant Catego...",N/A,,False,5786.370721340179,15,False,
+claude-sonnet-4-5,True,dspredict_talkingdata-adtracking-fraud-detection_talkingdata-adtracking-fraud-detection,dspredict,"**CHALLENGE NAME: talkingdata-adtracking-fraud-detection**
+
+Challenge description:
+TalkingData AdTra...",N/A,./submissions/container_007/talkingdata-adtracking-fraud-detection_7_20260611_005526_submission.csv,True,1701.8360574245453,14,False,0.92211
+claude-sonnet-4-5,True,dspredict_rsna-pneumonia-detection-challenge_rsna-pneumonia-detection-challenge,dspredict,"**CHALLENGE NAME: rsna-pneumonia-detection-challenge**
+
+Challenge description:
+# RSNA Pneumonia Dete...",N/A,./submissions/container_007/rsna-pneumonia-detection-challenge_7_20260611_003531_submission.csv,True,506.4273490905762,12,False,0.0
+claude-sonnet-4-5,True,dspredict_digit-recognizer_digit-recognizer,dspredict,"**CHALLENGE NAME: digit-recognizer**
+
+Challenge description:
+# Digit Recognizer
+
+## Competition Desc...",N/A,./submissions/container_006/digit-recognizer_6_20260611_004253_submission.csv,True,947.9967050552368,7,False,0.96921
+claude-sonnet-4-5,True,dspredict_siim-acr-pneumothorax-segmentation_siim-acr-pneumothorax-segmentation,dspredict,"**CHALLENGE NAME: siim-acr-pneumothorax-segmentation**
+
+Challenge description:
+# SIIM-ACR Pneumothor...",N/A,./submissions/container_002/siim-acr-pneumothorax-segmentation_2_20260611_014550_submission.csv,False,4725.308790922165,13,False,0.6
+claude-sonnet-4-5,True,dspredict_novozymes-enzyme-stability-prediction_novozymes-enzyme-stability-prediction,dspredict,"**CHALLENGE NAME: novozymes-enzyme-stability-prediction**
+
+Challenge description:
+# Novozymes Enzyme...",N/A,,False,273.6231322288513,15,False,
+claude-sonnet-4-5,True,dspredict_career-con-2019_career-con-2019,dspredict,"**CHALLENGE NAME: career-con-2019**
+
+Challenge description:
+Compete to get your resume in front of o...",N/A,./submissions/container_003/career-con-2019_3_20260611_014140_submission.csv,True,4475.441777229309,15,False,0.1331
+claude-sonnet-4-5,True,dspredict_womens-machine-learning-competition-2019_womens-machine-learning-competition-2019,dspredict,"**CHALLENGE NAME: womens-machine-learning-competition-2019**
+
+Challenge description:
+# Google Cloud ...",N/A,,False,8828.093407869339,15,False,
+claude-sonnet-4-5,True,dspredict_store-sales-time-series-forecasting_store-sales-time-series-forecasting,dspredict,"**CHALLENGE NAME: store-sales-time-series-forecasting**
+
+Challenge description:
+# Store Sales - Time...",N/A,./submissions/container_006/store-sales-time-series-forecasting_6_20260611_021247_submission.csv,True,6342.300302743912,13,False,1.55056
+claude-sonnet-4-5,True,dspredict_ieee-fraud-detection_ieee-fraud-detection,dspredict,"**CHALLENGE NAME: ieee-fraud-detection**
+
+Challenge description:
+Imagine standing at the check-out c...",N/A,./submissions/container_007/ieee-fraud-detection_7_20260611_031740_submission.csv,False,10235.057497024536,12,False,0.907507
+claude-sonnet-4-5,True,dspredict_web-traffic-time-series-forecasting_web-traffic-time-series-forecasting,dspredict,"**CHALLENGE NAME: web-traffic-time-series-forecasting**
+
+Challenge description:
+# Web Traffic Time S...",N/A,./submissions/container_006/web-traffic-time-series-forecasting_6_20260611_023313_submission.csv,False,7568.10337638855,15,False,
+claude-sonnet-4-5,True,dspredict_predict-ai-model-runtime_predict-ai-model-runtime,dspredict,"**CHALLENGE NAME: predict-ai-model-runtime**
+
+Challenge description:
+# Google - Fast or Slow? Predic...",N/A,./submissions/container_002/predict-ai-model-runtime_2_20260611_025040_submission.csv,False,8615.118836641312,15,False,
+claude-sonnet-4-5,True,dspredict_sp-society-camera-model-identification_sp-society-camera-model-identification,dspredict,"**CHALLENGE NAME: sp-society-camera-model-identification**
+
+Challenge description:
+Competition Host:...",N/A,,False,8384.327426433563,15,False,
+claude-sonnet-4-5,True,dspredict_humpback-whale-identification_humpback-whale-identification,dspredict,"**CHALLENGE NAME: humpback-whale-identification**
+
+Challenge description:
+After centuries of intense...",N/A,./submissions/container_002/humpback-whale-identification_2_20260611_030532_submission.csv,False,9507.252090454102,15,False,
+claude-sonnet-4-5,True,dspredict_nlp-getting-started_nlp-getting-started,dspredict,"**CHALLENGE NAME: nlp-getting-started**
+
+Challenge description:
+# Natural Language Processing with D...",N/A,./submissions/container_003/nlp-getting-started_3_20260611_025951_submission.csv,False,9165.719347000122,12,False,0.79528
+claude-sonnet-4-5,True,dspredict_youtube8m-2018_youtube8m-2018,dspredict,"**CHALLENGE NAME: youtube8m-2018**
+
+Challenge description:
+# The 2nd YouTube-8M Video Understanding ...",N/A,./submissions/container_003/youtube8m-2018_3_20260611_015730_submission.csv,False,5424.882076263428,15,False,0.05139
+claude-sonnet-4-5,True,dspredict_santander-customer-transaction-prediction_santander-customer-transaction-prediction,dspredict,"**CHALLENGE NAME: santander-customer-transaction-prediction**
+
+Challenge description:
+Santander Cust...",N/A,./submissions/container_001/santander-customer-transaction-prediction_1_20260611_035441_submission.csv,False,12266.896310091019,10,False,0.89556
+claude-sonnet-4-5,True,dspredict_m5-forecasting-accuracy_m5-forecasting-accuracy,dspredict,"**CHALLENGE NAME: m5-forecasting-accuracy**
+
+Challenge description:
+Note: This is one of the two com...",N/A,./submissions/container_006/m5-forecasting-accuracy_6_20260611_025748_submission.csv,False,8769.68867635727,15,False,
+claude-sonnet-4-5,True,dspredict_trec-covid-information-retrieval_trec-covid-information-retrieval,dspredict,"**CHALLENGE NAME: trec-covid-information-retrieval**
+
+Challenge description:
+# TREC-COVID Informatio...",N/A,./submissions/container_000/trec-covid-information-retrieval_0_20260611_013509_submission.csv,True,3725.131327152252,11,False,0.24308
+claude-sonnet-4-5,True,dspredict_microsoft-malware-prediction_microsoft-malware-prediction,dspredict,"**CHALLENGE NAME: microsoft-malware-prediction**
+
+Challenge description:
+# Microsoft Malware Predict...",N/A,,False,11228.923233509064,15,False,
+claude-sonnet-4-5,True,dspredict_LANL-Earthquake-Prediction_LANL-Earthquake-Prediction,dspredict,"**CHALLENGE NAME: LANL-Earthquake-Prediction**
+
+Challenge description:
+# LANL Earthquake Prediction
+...",N/A,./submissions/container_005/LANL-Earthquake-Prediction_5_20260611_035019_submission.csv,False,11655.481251239777,15,False,1.66758
+claude-sonnet-4-5,True,dspredict_mens-march-mania-2022_mens-march-mania-2022,dspredict,"**CHALLENGE NAME: mens-march-mania-2022**
+
+Challenge description:
+March Machine Learning Mania 2022 ...",N/A,./submissions/container_002/mens-march-mania-2022_2_20260611_014340_submission.csv,True,3633.583418607712,10,False,
+claude-sonnet-4-5,True,dspredict_statoil-iceberg-classifier-challenge_statoil-iceberg-classifier-challenge,dspredict,"**CHALLENGE NAME: statoil-iceberg-classifier-challenge**
+
+Challenge description:
+Statoil/C-CORE Iceb...",N/A,./submissions/container_003/statoil-iceberg-classifier-challenge_3_20260611_015319_submission.csv,True,3320.1009392738342,15,False,0.14524
+claude-sonnet-4-5,True,dspredict_mens-machine-learning-competition-2018_mens-machine-learning-competition-2018,dspredict,"**CHALLENGE NAME: mens-machine-learning-competition-2018**
+
+Challenge description:
+# Google Cloud & ...",N/A,./submissions/container_006/mens-machine-learning-competition-2018_6_20260611_025950_submission.csv,False,5270.874435186386,14,False,
+claude-sonnet-4-5,True,dspredict_santander-value-prediction-challenge_santander-value-prediction-challenge,dspredict,"**CHALLENGE NAME: santander-value-prediction-challenge**
+
+Challenge description:
+Santander Value Pre...",N/A,./submissions/container_006/santander-value-prediction-challenge_6_20260611_025555_submission.csv,True,4824.411748170853,8,False,1.49806
+claude-sonnet-4-5,True,dspredict_home-credit-default-risk_home-credit-default-risk,dspredict,"**CHALLENGE NAME: home-credit-default-risk**
+
+Challenge description:
+Home Credit Default Risk
+
+Can y...",N/A,./submissions/container_006/home-credit-default-risk_6_20260611_035406_submission.csv,False,8027.587887763977,7,False,0.77728
+claude-sonnet-4-5,True,dspredict_youtube8m-2019_youtube8m-2019,dspredict,"**CHALLENGE NAME: youtube8m-2019**
+
+Challenge description:
+# The 3rd YouTube-8M Video Understanding ...",N/A,./submissions/container_003/youtube8m-2019_3_20260611_030308_submission.csv,False,4876.098122596741,14,False,0.0

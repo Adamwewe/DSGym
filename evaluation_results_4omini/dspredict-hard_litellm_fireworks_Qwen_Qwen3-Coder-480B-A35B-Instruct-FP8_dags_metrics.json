@@ -1,0 +1,12 @@
+{
+  "total_samples": 54,
+  "successful_samples": 0,
+  "error_samples": 54,
+  "samples_with_ground_truth": 0,
+  "success_rate": 0.0,
+  "average_execution_time": 337.17839124909153,
+  "average_turns": 0.0,
+  "error_breakdown": {},
+  "model_name": "fireworks/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+  "use_dags": true
+}

@@ -314,8 +314,58 @@ dsgym/eval/
 │   ├── code_execution.py   # Code evaluation metrics
 │   ├── equivalence_by_llm.py # LLM judge metrics
 │   ├── semantic_similarity.py # Embedding-based metrics
+│   ├── dag_consistency.py  # DAG consistency analysis (R→I, revisions, code coverage)
 │   └── domain_specific.py  # HMS, LLM score, dataset-specific metrics
 └── README.md               # This documentation
+```
+
+## DAG Consistency Analysis
+
+The framework includes tools for analyzing how models translate reasoning into implementation and how plans evolve during execution.
+
+### Features
+- **Multi-DAG Extraction**: Extracts ALL DAGs from trajectories, not just the first
+- **R→I Consistency**: Measures fidelity of reasoning → implementation translation
+- **Revision Drift**: Tracks how plans change across re-planning steps
+- **Code Coverage**: Measures how well generated code covers planned nodes
+- **Multiple Similarity Metrics**: Jaccard, ROUGE-1/2/L, and semantic embeddings
+
+### Embedding Backend
+Uses litellm with Fireworks AI `qwen3-embedding-8b` by default for high-quality semantic similarity. Falls back to sentence-transformers if API is unavailable.
+
+```python
+from dsgym.eval.utils import analyze_trajectory_dags
+
+# Analyze a trajectory
+result = analyze_trajectory_dags(
+    trajectory,
+    compute_embeddings=True,
+    embedding_model="fireworks_ai/fireworks/qwen3-embedding-8b"
+)
+
+print(f"Total DAGs: {result['n_total_dags']}")
+print(f"R→I Jaccard: {result['ri_metrics']['jaccard']:.3f}")
+print(f"Revision drift: {len(result.get('revision_drift', []))} re-plans")
+print(f"Code coverage: {result['code_coverage']['coverage_ratio']:.1%}")
+```
+
+### Direct Analysis
+```python
+from dsgym.eval.metrics.dag_consistency import (
+    extract_dags_from_trajectory,
+    analyze_dag_consistency,
+    DAGEmbedder,
+)
+
+# Extract all DAGs
+dag_seq = extract_dags_from_trajectory(trajectory)
+print(f"Found {len(dag_seq.dags)} DAGs across {len(dag_seq.code_blocks)} code blocks")
+
+for dag in dag_seq.dags:
+    print(f"  Turn {dag.turn_index}: {dag.dag_type} ({len(dag.nodes)} nodes)")
+
+# Full analysis
+result = analyze_dag_consistency(trajectory, compute_embeddings=True)
 ```
 
 ## Key Features

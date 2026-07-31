@@ -1,0 +1,12 @@
+{
+  "total_samples": 35,
+  "successful_samples": 13,
+  "error_samples": 22,
+  "samples_with_ground_truth": 0,
+  "success_rate": 0.37142857142857144,
+  "average_execution_time": 5879.3996587480815,
+  "average_turns": 13.371428571428572,
+  "error_breakdown": {},
+  "model_name": "claude-sonnet-4-5",
+  "use_dags": true
+}

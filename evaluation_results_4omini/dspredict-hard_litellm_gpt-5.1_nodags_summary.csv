@@ -1,0 +1,225 @@
+model_name,use_dags,sample_id,dataset_name,query,ground_truth,prediction,success,execution_time,total_turns,has_ground_truth,metric_kaggle_submission
+gpt-5.1,False,dspredict_LANL-Earthquake-Prediction_LANL-Earthquake-Prediction,dspredict,"**CHALLENGE NAME: LANL-Earthquake-Prediction**
+
+Challenge description:
+# LANL Earthquake Prediction
+...",N/A,./submissions/container_003/LANL-Earthquake-Prediction_3_20260612_030535_submission.csv,True,637.5752503871918,9,False,1.6201
+gpt-5.1,False,dspredict_ashrae-energy-prediction_ashrae-energy-prediction,dspredict,"**CHALLENGE NAME: ashrae-energy-prediction**
+
+Challenge description:
+# ASHRAE - Great Energy Predict...",N/A,./submissions/container_001/ashrae-energy-prediction_1_20260612_040117_submission.csv,True,3981.66134929657,11,False,1.449
+gpt-5.1,False,dspredict_career-con-2019_career-con-2019,dspredict,"**CHALLENGE NAME: career-con-2019**
+
+Challenge description:
+Compete to get your resume in front of o...",N/A,./submissions/container_004/career-con-2019_4_20260612_035801_submission.csv,True,3783.6941056251526,10,False,0.1284
+gpt-5.1,False,dspredict_champs-scalar-coupling_champs-scalar-coupling,dspredict,"**CHALLENGE NAME: champs-scalar-coupling**
+
+Challenge description:
+# Predicting Molecular Properties...",N/A,./submissions/container_000/champs-scalar-coupling_0_20260612_042311_submission.csv,True,5293.6615698337555,11,False,
+gpt-5.1,False,dspredict_data-science-bowl-2018_data-science-bowl-2018,dspredict,"**CHALLENGE NAME: data-science-bowl-2018**
+
+Challenge description:
+# 2018 Data Science Bowl: Find th...",N/A,./submissions/container_002/data-science-bowl-2018_2_20260612_025740_submission.csv,True,163.46470093727112,7,False,
+gpt-5.1,False,dspredict_digit-recognizer_digit-recognizer,dspredict,"**CHALLENGE NAME: digit-recognizer**
+
+Challenge description:
+# Digit Recognizer
+
+## Competition Desc...",N/A,./submissions/container_005/digit-recognizer_5_20260612_025721_submission.csv,True,144.19718861579895,5,False,0.97689
+gpt-5.1,False,dspredict_elo-merchant-category-recommendation_elo-merchant-category-recommendation,dspredict,"**CHALLENGE NAME: elo-merchant-category-recommendation**
+
+Challenge description:
+Elo Merchant Catego...",N/A,,False,6204.240918397903,15,False,
+gpt-5.1,False,dspredict_gendered-pronoun-resolution_gendered-pronoun-resolution,dspredict,"**CHALLENGE NAME: gendered-pronoun-resolution**
+
+Challenge description:
+Gendered Pronoun Resolution
+...",N/A,./submissions/container_002/gendered-pronoun-resolution_2_20260612_034007_submission.csv,True,2710.0229399204254,7,False,0.0
+gpt-5.1,False,dspredict_geolifeclef-2024_geolifeclef-2024,dspredict,"**CHALLENGE NAME: geolifeclef-2024**
+
+Challenge description:
+# GeoLifeCLEF 2024 @ LifeCLEF & CVPR-FG...",N/A,./submissions/container_006/geolifeclef-2024_6_20260612_025646_submission.csv,True,109.33460879325867,7,False,0.11588
+gpt-5.1,False,dspredict_google-smartphone-decimeter-challenge_google-smartphone-decimeter-challenge,dspredict,"**CHALLENGE NAME: google-smartphone-decimeter-challenge**
+
+Challenge description:
+Improve high preci...",N/A,./submissions/container_005/google-smartphone-decimeter-challenge_5_20260612_030122_submission.csv,True,384.74598002433777,9,False,7.18772
+gpt-5.1,False,dspredict_home-credit-default-risk_home-credit-default-risk,dspredict,"**CHALLENGE NAME: home-credit-default-risk**
+
+Challenge description:
+Home Credit Default Risk
+
+Can y...",N/A,./submissions/container_005/home-credit-default-risk_5_20260612_042140_submission.csv,True,5203.03209733963,8,False,0.74409
+gpt-5.1,False,dspredict_home-data-for-ml-course_home-data-for-ml-course,dspredict,"**CHALLENGE NAME: home-data-for-ml-course**
+
+Challenge description:
+# Housing Prices Competition for...",N/A,./submissions/container_006/home-data-for-ml-course_6_20260612_035925_submission.csv,True,3868.5277609825134,10,False,16602.03686
+gpt-5.1,False,dspredict_humpback-whale-identification_humpback-whale-identification,dspredict,"**CHALLENGE NAME: humpback-whale-identification**
+
+Challenge description:
+After centuries of intense...",N/A,./submissions/container_003/humpback-whale-identification_3_20260612_032907_submission.csv,True,2050.3225400447845,9,False,0.23905
+gpt-5.1,False,dspredict_ieee-fraud-detection_ieee-fraud-detection,dspredict,"**CHALLENGE NAME: ieee-fraud-detection**
+
+Challenge description:
+Imagine standing at the check-out c...",N/A,./submissions/container_003/ieee-fraud-detection_3_20260612_034756_submission.csv,True,3179.547557115555,11,False,0.926826
+gpt-5.1,False,dspredict_imaterialist-challenge-fashion-2018_imaterialist-challenge-fashion-2018,dspredict,"**CHALLENGE NAME: imaterialist-challenge-fashion-2018**
+
+Challenge description:
+iMaterialist Challen...",N/A,./submissions/container_001/imaterialist-challenge-fashion-2018_1_20260612_040825_submission.csv,False,4408.304486274719,8,False,0.34593
+gpt-5.1,False,dspredict_imaterialist-challenge-furniture-2018_imaterialist-challenge-furniture-2018,dspredict,"**CHALLENGE NAME: imaterialist-challenge-furniture-2018**
+
+Challenge description:
+Description
+As sho...",N/A,./submissions/container_002/imaterialist-challenge-furniture-2018_2_20260612_042433_submission.csv,True,5375.964089632034,7,False,0.7636
+gpt-5.1,False,dspredict_inclusive-images-challenge_inclusive-images-challenge,dspredict,"**CHALLENGE NAME: inclusive-images-challenge**
+
+Challenge description:
+# Inclusive Images Challenge
+...",N/A,./submissions/container_001/inclusive-images-challenge_1_20260612_040916_submission.csv,False,4459.098243236542,6,False,0.0884
+gpt-5.1,False,dspredict_liverpool-ion-switching_liverpool-ion-switching,dspredict,"**CHALLENGE NAME: liverpool-ion-switching**
+
+Challenge description:
+University of Liverpool - Ion Sw...",N/A,./submissions/container_003/liverpool-ion-switching_3_20260612_050011_submission.csv,True,7514.134043455124,10,False,
+gpt-5.1,False,dspredict_m5-forecasting-accuracy_m5-forecasting-accuracy,dspredict,"**CHALLENGE NAME: m5-forecasting-accuracy**
+
+Challenge description:
+Note: This is one of the two com...",N/A,./submissions/container_001/m5-forecasting-accuracy_1_20260612_040556_submission.csv,False,4259.23078083992,4,False,0.0
+gpt-5.1,False,dspredict_m5-forecasting-uncertainty_m5-forecasting-uncertainty,dspredict,"**CHALLENGE NAME: m5-forecasting-uncertainty**
+
+Challenge description:
+# M5 Forecasting - Uncertaint...",N/A,./submissions/container_001/m5-forecasting-uncertainty_1_20260612_040715_submission.csv,False,4338.57958817482,5,False,3.5436
+gpt-5.1,False,dspredict_march-machine-learning-mania-2023_march-machine-learning-mania-2023,dspredict,"**CHALLENGE NAME: march-machine-learning-mania-2023**
+
+Challenge description:
+Forecast the 2023 NCAA...",N/A,./submissions/container_001/march-machine-learning-mania-2023_1_20260612_060137_submission.csv,False,11200.428891897202,8,False,0.24356
+gpt-5.1,False,dspredict_march-machine-learning-mania-2025_march-machine-learning-mania-2025,dspredict,"**CHALLENGE NAME: march-machine-learning-mania-2025**
+
+Challenge description:
+Forecast the 2025 NCAA...",N/A,./submissions/container_005/march-machine-learning-mania-2025_5_20260612_042949_submission.csv,False,5691.758896827698,9,False,
+gpt-5.1,False,dspredict_mens-machine-learning-competition-2018_mens-machine-learning-competition-2018,dspredict,"**CHALLENGE NAME: mens-machine-learning-competition-2018**
+
+Challenge description:
+# Google Cloud & ...",N/A,./submissions/container_001/mens-machine-learning-competition-2018_1_20260612_040457_submission.csv,False,4199.6826775074005,8,False,
+gpt-5.1,False,dspredict_mens-machine-learning-competition-2019_mens-machine-learning-competition-2019,dspredict,"**CHALLENGE NAME: mens-machine-learning-competition-2019**
+
+Challenge description:
+# Google Cloud & ...",N/A,./submissions/container_000/mens-machine-learning-competition-2019_0_20260612_050316_submission.csv,False,7698.661224365234,7,False,
+gpt-5.1,False,dspredict_mens-march-mania-2022_mens-march-mania-2022,dspredict,"**CHALLENGE NAME: mens-march-mania-2022**
+
+Challenge description:
+March Machine Learning Mania 2022 ...",N/A,./submissions/container_005/mens-march-mania-2022_5_20260612_050655_submission.csv,False,7800.000332832336,12,False,0.69314
+gpt-5.1,False,dspredict_microsoft-malware-prediction_microsoft-malware-prediction,dspredict,"**CHALLENGE NAME: microsoft-malware-prediction**
+
+Challenge description:
+# Microsoft Malware Predict...",N/A,./submissions/container_002/microsoft-malware-prediction_2_20260612_062958_submission.csv,False,12736.105100631714,9,False,0.5
+gpt-5.1,False,dspredict_nlp-getting-started_nlp-getting-started,dspredict,"**CHALLENGE NAME: nlp-getting-started**
+
+Challenge description:
+# Natural Language Processing with D...",N/A,./submissions/container_007/nlp-getting-started_7_20260612_044140_submission.csv,False,6220.792452096939,7,False,0.79803
+gpt-5.1,False,dspredict_novozymes-enzyme-stability-prediction_novozymes-enzyme-stability-prediction,dspredict,"**CHALLENGE NAME: novozymes-enzyme-stability-prediction**
+
+Challenge description:
+# Novozymes Enzyme...",N/A,./submissions/container_004/novozymes-enzyme-stability-prediction_4_20260612_050013_submission.csv,True,7122.535092353821,9,False,-0.02194
+gpt-5.1,False,dspredict_open-problems-single-cell-perturbations_open-problems-single-cell-perturbations,dspredict,"**CHALLENGE NAME: open-problems-single-cell-perturbations**
+
+Challenge description:
+# Open Problems ...",N/A,./submissions/container_006/open-problems-single-cell-perturbations_6_20260612_040146_submission.csv,True,3361.9972109794617,7,False,0.627
+gpt-5.1,False,dspredict_otto-recommender-system_otto-recommender-system,dspredict,"**CHALLENGE NAME: otto-recommender-system**
+
+Challenge description:
+# OTTO – Multi-Objective Recomme...",N/A,./submissions/container_001/otto-recommender-system_1_20260612_040339_submission.csv,True,2057.4380145072937,7,False,0.0055
+gpt-5.1,False,dspredict_pku-autonomous-driving_pku-autonomous-driving,dspredict,"**CHALLENGE NAME: pku-autonomous-driving**
+
+Challenge description:
+# Peking University/Baidu - Auton...",N/A,./submissions/container_006/pku-autonomous-driving_6_20260612_040334_submission.csv,True,1395.596360206604,6,False,0.0
+gpt-5.1,False,dspredict_planttraits2024_planttraits2024,dspredict,"**CHALLENGE NAME: planttraits2024**
+
+Challenge description:
+# Uncovering the biosphere: Predicting 6...",N/A,./submissions/container_006/planttraits2024_6_20260612_063154_submission.csv,True,9823.13311123848,11,False,
+gpt-5.1,False,dspredict_predict-ai-model-runtime_predict-ai-model-runtime,dspredict,"**CHALLENGE NAME: predict-ai-model-runtime**
+
+Challenge description:
+# Google - Fast or Slow? Predic...",N/A,./submissions/container_007/predict-ai-model-runtime_7_20260612_044018_submission.csv,True,2529.5765912532806,7,False,0.119
+gpt-5.1,False,dspredict_recruit-restaurant-visitor-forecasting_recruit-restaurant-visitor-forecasting,dspredict,"**CHALLENGE NAME: recruit-restaurant-visitor-forecasting**
+
+Challenge description:
+Recruit Restauran...",N/A,./submissions/container_007/recruit-restaurant-visitor-forecasting_7_20260612_050440_submission.csv,True,3899.2772624492645,9,False,0.51016
+gpt-5.1,False,dspredict_rsna-pneumonia-detection-challenge_rsna-pneumonia-detection-challenge,dspredict,"**CHALLENGE NAME: rsna-pneumonia-detection-challenge**
+
+Challenge description:
+# RSNA Pneumonia Dete...",N/A,./submissions/container_003/rsna-pneumonia-detection-challenge_3_20260612_050103_submission.csv,True,3496.2074859142303,5,False,0.0
+gpt-5.1,False,dspredict_santander-customer-transaction-prediction_santander-customer-transaction-prediction,dspredict,"**CHALLENGE NAME: santander-customer-transaction-prediction**
+
+Challenge description:
+Santander Cust...",N/A,./submissions/container_004/santander-customer-transaction-prediction_4_20260612_063606_submission.csv,True,9140.66225028038,9,False,0.89082
+gpt-5.1,False,dspredict_santander-value-prediction-challenge_santander-value-prediction-challenge,dspredict,"**CHALLENGE NAME: santander-value-prediction-challenge**
+
+Challenge description:
+Santander Value Pre...",N/A,./submissions/container_003/santander-value-prediction-challenge_3_20260612_060916_submission.csv,True,7445.392749786377,10,False,
+gpt-5.1,False,dspredict_siim-acr-pneumothorax-segmentation_siim-acr-pneumothorax-segmentation,dspredict,"**CHALLENGE NAME: siim-acr-pneumothorax-segmentation**
+
+Challenge description:
+# SIIM-ACR Pneumothor...",N/A,./submissions/container_000/siim-acr-pneumothorax-segmentation_0_20260612_050518_submission.csv,True,3539.1477642059326,5,False,0.6
+gpt-5.1,False,dspredict_sp-society-camera-model-identification_sp-society-camera-model-identification,dspredict,"**CHALLENGE NAME: sp-society-camera-model-identification**
+
+Challenge description:
+Competition Host:...",N/A,./submissions/container_007/sp-society-camera-model-identification_7_20260612_052857_submission.csv,True,4945.892468214035,8,False,0.13062
+gpt-5.1,False,dspredict_spaceship-titanic_spaceship-titanic,dspredict,"**CHALLENGE NAME: spaceship-titanic**
+
+Challenge description:
+Welcome to the year 2912, where your d...",N/A,./submissions/container_000/spaceship-titanic_0_20260612_050858_submission.csv,True,3656.721379518509,8,False,0.80149
+gpt-5.1,False,dspredict_stanford-covid-vaccine_stanford-covid-vaccine,dspredict,"**CHALLENGE NAME: stanford-covid-vaccine**
+
+Challenge description:
+# OpenVaccine: COVID-19 mRNA Vacc...",N/A,./submissions/container_005/stanford-covid-vaccine_5_20260612_051029_submission.csv,True,3715.120252609253,8,False,0.41304
+gpt-5.1,False,dspredict_statoil-iceberg-classifier-challenge_statoil-iceberg-classifier-challenge,dspredict,"**CHALLENGE NAME: statoil-iceberg-classifier-challenge**
+
+Challenge description:
+Statoil/C-CORE Iceb...",N/A,./submissions/container_001/statoil-iceberg-classifier-challenge_1_20260612_063612_submission.csv,False,8837.709334611893,14,False,0.31824
+gpt-5.1,False,dspredict_store-sales-time-series-forecasting_store-sales-time-series-forecasting,dspredict,"**CHALLENGE NAME: store-sales-time-series-forecasting**
+
+Challenge description:
+# Store Sales - Time...",N/A,./submissions/container_000/store-sales-time-series-forecasting_0_20260612_070128_submission.csv,True,10322.223989963531,8,False,0.61652
+gpt-5.1,False,dspredict_talkingdata-adtracking-fraud-detection_talkingdata-adtracking-fraud-detection,dspredict,"**CHALLENGE NAME: talkingdata-adtracking-fraud-detection**
+
+Challenge description:
+TalkingData AdTra...",N/A,./submissions/container_005/talkingdata-adtracking-fraud-detection_5_20260612_054034_submission.csv,True,4717.3400321006775,10,False,0.94864
+gpt-5.1,False,dspredict_tensorflow-speech-recognition-challenge_tensorflow-speech-recognition-challenge,dspredict,"**CHALLENGE NAME: tensorflow-speech-recognition-challenge**
+
+Challenge description:
+# TensorFlow Spe...",N/A,./submissions/container_003/tensorflow-speech-recognition-challenge_3_20260612_060950_submission.csv,False,6380.894101381302,4,False,
+gpt-5.1,False,dspredict_tgs-salt-identification-challenge_tgs-salt-identification-challenge,dspredict,"**CHALLENGE NAME: tgs-salt-identification-challenge**
+
+Challenge description:
+# TGS Salt Identificat...",N/A,./submissions/container_003/tgs-salt-identification-challenge_3_20260612_061352_submission.csv,False,6542.642064332962,10,False,0.49971
+gpt-5.1,False,dspredict_trec-covid-information-retrieval_trec-covid-information-retrieval,dspredict,"**CHALLENGE NAME: trec-covid-information-retrieval**
+
+Challenge description:
+# TREC-COVID Informatio...",N/A,./submissions/container_007/trec-covid-information-retrieval_7_20260612_053346_submission.csv,True,3815.531017303467,11,False,0.18872
+gpt-5.1,False,dspredict_understanding_cloud_organization_understanding_cloud_organization,dspredict,"**CHALLENGE NAME: understanding_cloud_organization**
+
+Challenge description:
+Understanding Clouds fr...",N/A,./submissions/container_007/understanding_cloud_organization_7_20260612_053426_submission.csv,True,3364.6973440647125,4,False,0.47754
+gpt-5.1,False,dspredict_ventilator-pressure-prediction_ventilator-pressure-prediction,dspredict,"**CHALLENGE NAME: ventilator-pressure-prediction**
+
+Challenge description:
+What do doctors do when a...",N/A,./submissions/container_007/ventilator-pressure-prediction_7_20260612_064558_submission.csv,True,7495.533560037613,10,False,1.3323
+gpt-5.1,False,dspredict_vsb-power-line-fault-detection_vsb-power-line-fault-detection,dspredict,"**CHALLENGE NAME: vsb-power-line-fault-detection**
+
+Challenge description:
+# VSB Power Line Fault De...",N/A,./submissions/container_005/vsb-power-line-fault-detection_5_20260612_065433_submission.csv,True,7952.075538158417,7,False,0.11542
+gpt-5.1,False,dspredict_web-traffic-time-series-forecasting_web-traffic-time-series-forecasting,dspredict,"**CHALLENGE NAME: web-traffic-time-series-forecasting**
+
+Challenge description:
+# Web Traffic Time S...",N/A,./submissions/container_003/web-traffic-time-series-forecasting_3_20260612_061833_submission.csv,False,4689.681804895401,10,False,
+gpt-5.1,False,dspredict_womens-machine-learning-competition-2019_womens-machine-learning-competition-2019,dspredict,"**CHALLENGE NAME: womens-machine-learning-competition-2019**
+
+Challenge description:
+# Google Cloud ...",N/A,./submissions/container_003/womens-machine-learning-competition-2019_3_20260612_062007_submission.csv,False,4752.5511655807495,8,False,0.43891
+gpt-5.1,False,dspredict_youtube8m-2018_youtube8m-2018,dspredict,"**CHALLENGE NAME: youtube8m-2018**
+
+Challenge description:
+# The 2nd YouTube-8M Video Understanding ...",N/A,./submissions/container_003/youtube8m-2018_3_20260612_061911_submission.csv,False,4670.078065872192,6,False,0.0
+gpt-5.1,False,dspredict_youtube8m-2019_youtube8m-2019,dspredict,"**CHALLENGE NAME: youtube8m-2019**
+
+Challenge description:
+# The 3rd YouTube-8M Video Understanding ...",N/A,,False,3507.3205029964447,2,False,

@@ -14,6 +14,16 @@ from .domain_specific import (
     LLMScoreMetric,
     HMSScoreMetric
 )
+from .dag_consistency import (
+    DAGConsistencyMetric,
+    DAGEmbedder,
+    DAGSequence,
+    DAG,
+    analyze_dag_consistency,
+    extract_dags_from_trajectory,
+    compute_dag_pair_metrics,
+    compute_code_coverage,
+)
 
 __all__ = [
     "BaseMetric",
@@ -25,4 +35,13 @@ __all__ = [
     "DABStepMetric",
     "LLMScoreMetric",
     "HMSScoreMetric",
+    # DAG consistency analysis
+    "DAGConsistencyMetric",
+    "DAGEmbedder",
+    "DAGSequence",
+    "DAG",
+    "analyze_dag_consistency",
+    "extract_dags_from_trajectory",
+    "compute_dag_pair_metrics",
+    "compute_code_coverage",
 ]

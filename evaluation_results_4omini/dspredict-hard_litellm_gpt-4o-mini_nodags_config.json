@@ -1,0 +1,27 @@
+{
+  "model_name": "gpt-4o-mini",
+  "backend_type": "litellm",
+  "dataset_name": "dspredict-hard",
+  "dataset_split": "test",
+  "limit": null,
+  "start_index": 0,
+  "protocol": "multi_turn",
+  "max_turns": 15,
+  "metrics": [
+    "exact_match"
+  ],
+  "temperature": 0.0,
+  "top_p": 1.0,
+  "max_tokens": 1524,
+  "output_dir": "./evaluation_results",
+  "run_name": "dspredict-hard_litellm_gpt-4o-mini_nodags",
+  "save_trajectories": true,
+  "max_workers": 24,
+  "batch_size": 1,
+  "seed": 42,
+  "extra_config": {
+    "generate_dags": false
+  },
+  "timestamp": "2026-06-18T06:58:11.476512",
+  "total_samples": 54
+}

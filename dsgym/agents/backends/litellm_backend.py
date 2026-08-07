@@ -31,6 +31,7 @@ class LiteLLMBackend(BaseBackend):
         max_tokens: int = 1524, 
         timeout: int = 180, 
         max_retries: int = 3,
+        seed: int=42,
         **kwargs
     ):
         """
@@ -69,7 +70,8 @@ class LiteLLMBackend(BaseBackend):
             # Only include top_p if explicitly set to non-default value or when temperature is 0
             # This avoids parameter conflicts with models that don't support both
             self.generation_params = {
-                "temperature": temperature, 
+                "temperature": temperature,
+                "seed": seed,
                 "max_tokens": max_tokens
             }
             if self.model_name.startswith("gpt-5"):

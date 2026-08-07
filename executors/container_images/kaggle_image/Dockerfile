@@ -1,11 +1,4 @@
-FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
-
-RUN apt-get update && apt-get install -y python3.11 python3.11-venv curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python && \
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
-    ln -sf /usr/local/bin/pip /usr/bin/pip
-
+FROM pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime
 
 # Accept UID/GID as build arguments (default to 1000 for standard Linux user)
 ARG USER_ID=1000

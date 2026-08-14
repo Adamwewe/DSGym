@@ -21,8 +21,12 @@ Phases (run with --phase, or `all` to run everything except teardown):
   run        Write KAGGLE_TOKEN to ~/.kaggle/access_token + push OPENAI_API_KEY,
              start `dsgym eval` in a background Daytona session, and stream its
              stdout/stderr live to this terminal until it finishes.
-  fetch      Tar evaluation_results/ (+ submissions/) inside the sandbox and
-             download the archive to --local-results-dir.
+   fetch      Tar evaluation_results/ (+ submissions/) inside the sandbox and
+              download the archive to --local-results-dir.
+   auto-fetch Run fetch in a loop every --auto-fetch-interval seconds (default
+              1200 = 20 min). Use as a background safety net so results survive
+              even if your laptop dies. Also runs automatically as a background
+              thread during --phase run.
   teardown   Kill all manager/executor background processes inside the sandbox.
              By default the sandbox is only STOPPED afterwards (billing stops,
              filesystem preserved); add --delete-sandbox to also delete it
@@ -61,6 +65,10 @@ Phases (run with --phase, or `all` to run everything except teardown):
    stop-run   Kill a running `dsgym eval` process inside the sandbox (does
               NOT stop the manager/executors or the sandbox). Use this when
               an eval is burning tokens on a broken setup.
+   attach     Re-attach to a running eval session's live log stream. Finds
+              the latest dsgym-eval-* session that's still running and
+              re-streams its stdout/stderr. Use this when your laptop died
+              or you Ctrl-C'd the orchestrator but the eval is still going.
 
 State (sandbox id, repo dir, etc.) is persisted to --state-file (default:
 daytona/.daytona_state.json) so phases can be re-run independently without
@@ -141,6 +149,16 @@ def get_manager_venv_python(repo_dir: str) -> str:
     executor's dependency tree. Keeping it in a separate venv avoids the fight.
     """
     return f"{repo_dir.rstrip('/')}/.venv-manager/bin/python3"
+
+
+def get_executor_venv_python(repo_dir: str) -> str:
+    """Absolute path to the Python inside the executor's isolated venv.
+
+    Same rationale as the manager venv: `uv sync` / `uv run` would otherwise
+    wipe executor deps (fastapi, jupyter-client, etc.) from the repo `.venv`
+    because they're not in the project's `uv.lock`.
+    """
+    return f"{repo_dir.rstrip('/')}/.venv-executor/bin/python3"
 
 
 def get_repo_dir(sandbox, state: dict, args) -> str:
@@ -316,8 +334,8 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
             gpu_type=gpu_types,
         ),
         env_vars={"OPENAI_API_KEY": openai_key},
-        auto_delete_interval=0,
-        auto_stop_interval=0,
+        auto_delete_interval=0,  # GPU sandboxes must be ephemeral (Daytona requirement)
+        auto_stop_interval=999999,  # ~694 days — effectively "never auto-stop"
         labels=SANDBOX_LABELS,
     )
     try:
@@ -380,7 +398,7 @@ def _install_manager_deps(sandbox, repo_dir: str) -> None:
     venv_dir = f"{repo_dir.rstrip('/')}/.venv-manager"
     venv_python = get_manager_venv_python(repo_dir)
     run(sandbox, (
-        f"$HOME/.local/bin/uv venv --python 3.12 {shlex.quote(venv_dir)}"
+        f"$HOME/.local/bin/uv venv --python 3.12 --clear {shlex.quote(venv_dir)}"
     ), cwd=repo_dir, timeout=120)
     run(sandbox, (
         f"$HOME/.local/bin/uv pip install --python {shlex.quote(venv_python)} -r "
@@ -395,28 +413,31 @@ def _install_manager_deps(sandbox, repo_dir: str) -> None:
 
 
 def _install_executor_deps(sandbox, repo_dir: str) -> None:
-    """Install the executor-kaggle Python dependencies into the sandbox's uv venv.
+    """Install the executor-kaggle Python dependencies into a dedicated venv.
 
-    The executor image is based on pytorch/pytorch which ships CUDA-enabled torch.
-    We install all of requirements.kaggle.txt first, then force-reinstall torch from
-    the CUDA 12.6 wheels so the GPU build wins (requirements.kaggle.txt itself lists
-    'torch', which would otherwise pull the CPU wheel from PyPI).
+    The executor needs fastapi/uvicorn/jupyter-client/ipykernel plus all the ML
+    libraries. Installing into the repo `.venv` doesn't work because `uv sync`
+    / `uv run` wipes anything not in `uv.lock`. A separate `.venv-executor`
+    keeps them safe.
     """
-    print("🔧 Installing executor-kaggle Python dependencies (force-reinstall to match requirements.kaggle.txt)...")
-    venv_python = get_venv_python(repo_dir)
+    print("🔧 Creating executor venv and installing executor-kaggle dependencies...")
+    venv_dir = f"{repo_dir.rstrip('/')}/.venv-executor"
+    venv_python = get_executor_venv_python(repo_dir)
     run(sandbox, (
-        f"$HOME/.local/bin/uv pip install --python {shlex.quote(venv_python)} --force-reinstall -r "
+        f"$HOME/.local/bin/uv venv --python 3.12 --clear {shlex.quote(venv_dir)}"
+    ), cwd=repo_dir, timeout=120)
+    run(sandbox, (
+        f"$HOME/.local/bin/uv pip install --python {shlex.quote(venv_python)} -r "
         f"{shlex.quote(repo_dir)}/executors/container_images/kaggle_image/requirements.kaggle.txt"
     ), cwd=repo_dir, timeout=600)
 
-    print("🔧 Upgrading torch to CUDA 12.6 wheels (force-reinstall over the CPU wheel)...")
+    print("🔧 Upgrading torch to CUDA 12.6 wheels in the executor venv...")
     run(sandbox, (
         f"$HOME/.local/bin/uv pip install --python {shlex.quote(venv_python)} --force-reinstall --index-url "
         "https://download.pytorch.org/whl/cu126 torch"
     ), cwd=repo_dir, timeout=600)
 
     print("🔎 Verifying installed PyTorch can see the GPU...")
-    venv_python = get_venv_python(repo_dir)
     gpu_check = sandbox.process.exec(
         f"{shlex.quote(venv_python)} -c \"import torch; print('torch version:', torch.__version__); "
         f"print('CUDA available:', torch.cuda.is_available()); "
@@ -461,10 +482,19 @@ def _stop_services(sandbox) -> None:
     """Kill any manager/executor processes started by this orchestrator."""
     print("🧹 Stopping manager + executor processes...")
     sandbox.process.exec(
+        # Kill by the wrapper env var (set on the nohup wrapper process)
         "pkill -f 'DSGYM_EXECUTOR_WORKER' || true; "
+        # Kill by the script names
+        "pkill -f 'dsgym_executor_' || true; "
         "pkill -f 'executors/manager/main.py' || true; "
-        "pkill -f 'executors/container_images/kaggle_image/main.py' || true; "
-        "rm -f /tmp/dsgym_executor_*.pid /tmp/dsgym_manager.pid"
+        "pkill -f 'kaggle_image/main.py' || true; "
+        # Kill anything listening on our ports (handles orphaned processes)
+        "for port in 5000 8432 8433 8434 8435 8436 8437 8438 8439; do "
+        "  pid=$(lsof -ti :$port 2>/dev/null || true); "
+        "  [ -n \"$pid\" ] && kill -9 $pid 2>/dev/null || true; "
+        "done; "
+        "rm -f /tmp/dsgym_executor_*.pid /tmp/dsgym_manager.pid; "
+        "sleep 1"
     )
 
 
@@ -563,6 +593,57 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
         f"bash {download_script}"
     ), cwd=repo_dir, timeout=3600)
 
+    # ── Post-download data setup ────────────────────────────────────────────
+    # The download scripts put data in data/data/dspredict/ (or dspredict-sampled/),
+    # but dsgym eval looks in data/data/dspredict-{split}/ (e.g. dspredict-hard/).
+    # We:
+    #   1. Clean up empty dirs and 0-byte zips from failed downloads
+    #   2. Replace dspredict-hard/ and dspredict-easy/ with symlinks to dspredict/
+    #   3. Create placeholder dirs for competitions that failed to download,
+    #      so the eval doesn't try to re-download them (which hangs on kagglesdk)
+    data_base = f"{repo_dir}/data/data"
+    venv_python = get_venv_python(repo_dir)
+
+    # 1. Clean up failed downloads in all dspredict dirs
+    run(sandbox, (
+        f"find {data_base}/dspredict {data_base}/dspredict-sampled -name '*.zip' -size 0 -delete 2>/dev/null; "
+        f"find {data_base}/dspredict {data_base}/dspredict-sampled -maxdepth 1 -type d -empty -exec rmdir {{}} + 2>/dev/null; "
+        f"echo 'Cleaned empty zips and dirs'"
+    ), check=False)
+
+    # 2. Replace split dirs with symlinks to dspredict/
+    run(sandbox, f"mkdir -p {data_base}/dspredict", check=False)
+    for split in ("dspredict-hard", "dspredict-easy"):
+        split_path = f"{data_base}/{split}"
+        # Remove whatever's there (real dir, old symlink, etc.) and create fresh symlink
+        run(sandbox, f"rm -rf {split_path} && ln -s {data_base}/dspredict {split_path}", check=False)
+
+    # 3. Create placeholder dirs for competitions that failed to download.
+    #    The eval checks `if not competition_path.exists()` — if the dir exists,
+    #    it skips the download attempt (which would hang). The agent will get
+    #    a file-not-found error when trying to load data, which is handled gracefully.
+    placeholder_script = (
+        "#!/bin/bash\n"
+        f"cd {shlex.quote(repo_dir)}\n"
+        f"python3 -c \"\n"
+        f"import json, os\n"
+        f"data = json.load(open('data/task/dspredict/hard.json'))\n"
+        f"base = 'data/data/dspredict'\n"
+        f"created = 0\n"
+        f"for d in data:\n"
+        f"    name = d.get('docker_challenge_path','').split('/')[-1]\n"
+        f"    path = os.path.join(base, name)\n"
+        f"    if not os.path.exists(path):\n"
+        f"        os.makedirs(path, exist_ok=True)\n"
+        f"        with open(os.path.join(path, '.download_failed'), 'w') as f:\n"
+        f"            f.write('')\n"
+        f"        created += 1\n"
+        f"print(f'Created {{created}} placeholder dirs for missing competitions')\n"
+        f"\"\n"
+    )
+    sandbox.fs.upload_file(placeholder_script.encode("utf-8"), "/tmp/dsgym_placeholders.sh")
+    run(sandbox, "bash /tmp/dsgym_placeholders.sh", cwd=repo_dir, check=False)
+
     state["bootstrap_ok"] = True
     save_state(args.state_file, state)
     return state
@@ -623,7 +704,7 @@ def phase_launch(sandbox, state: dict, args) -> dict:
     _wait_for_manager(sandbox)
 
     print(f"🚀 Starting {n} executor-kaggle worker(s) with mount-namespace isolation...")
-    venv_python = get_venv_python(repo_dir)
+    executor_venv_python = get_executor_venv_python(repo_dir)
     for i in range(n):
         port = EXECUTOR_BASE_PORT + i
         host_port = EXECUTOR_START_PORT + i
@@ -650,7 +731,7 @@ def phase_launch(sandbox, state: dict, args) -> dict:
             f'mount --bind {shlex.quote(repo_dir)}/data/data {SANDBOX_DATA_DIR}; '
             f'mount --bind {shlex.quote(submission_dir)} {SANDBOX_SUBMISSION_DIR}; '
             f'cd {shlex.quote(executor_dir)}; '
-            f'exec {shlex.quote(venv_python)} main.py"\n'
+            f'exec {shlex.quote(executor_venv_python)} main.py"\n'
         )
         sandbox.fs.upload_file(wrapper_script.encode("utf-8"), wrapper_path)
         run(sandbox, f"chmod +x {wrapper_path}")
@@ -739,11 +820,27 @@ def phase_run(sandbox, state: dict, args) -> dict:
         daemon=True,
     )
     monitor.start()
+
+    # Background auto-fetch thread — periodically saves results so they're
+    # not lost if the laptop dies or the sandbox gets auto-deleted.
+    auto_fetch_interval = getattr(args, "auto_fetch_interval", 1200)
+    af_thread = threading.Thread(
+        target=_auto_fetch_loop,
+        args=(sandbox, state, args, stop_event, auto_fetch_interval),
+        daemon=True,
+    )
+    af_thread.start()
+
     try:
         _stream_session_logs(sandbox, eval_session_id, command_id)
+    except KeyboardInterrupt:
+        print("\n\n⏸️  Detached from stream. The eval is still running in the sandbox.")
+        print("   Re-attach with:  --phase attach")
+        print("   Auto-fetch continues in background — Ctrl-C again to stop it.")
     finally:
         stop_event.set()
         monitor.join(timeout=15)
+        af_thread.join(timeout=15)
 
     final = sandbox.process.get_session_command(eval_session_id, command_id)
     print(f"\n🏁 Eval finished with exit code {final.exit_code}")
@@ -771,6 +868,62 @@ def phase_stop_run(sandbox, state: dict, args) -> dict:
     # Also kill any uv-run wrapper that may be running dsgym eval.
     run(sandbox, "pkill -f 'uv run dsgym eval' || true", check=False)
     print("✅ Sent kill signal. The eval may take a few seconds to stop.")
+    return state
+
+
+# --------------------------------------------------------------------------
+# Phase: attach  (re-attach to a running eval session's live log stream)
+# --------------------------------------------------------------------------
+
+def phase_attach(sandbox, state: dict, args) -> dict:
+    """Find the latest running dsgym-eval-* session and re-stream its logs.
+
+    Useful when your laptop died or you Ctrl-C'd the orchestrator but the eval
+    is still running inside the sandbox.
+    """
+    print("🔎 Searching for running eval sessions...")
+    sessions = sandbox.process.list_sessions()
+    candidates = []
+    for s in sessions:
+        sid = s.session_id
+        if not sid.startswith("dsgym-eval-"):
+            continue
+        session_info = sandbox.process.get_session(sid)
+        for cmd in session_info.commands:
+            if cmd.exit_code is None and "dsgym eval" in cmd.command:
+                candidates.append((sid, cmd.id, cmd.command))
+
+    if not candidates:
+        print("ℹ️  No running dsgym-eval sessions found.")
+        print("   The eval may have finished or been killed. Check results with:")
+        print("   --phase exec --command 'ls -lt /root/DSGym/evaluation_results/ | head -10'")
+        return state
+
+    # Pick the most recent (highest timestamp in session id)
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    session_id, command_id, command = candidates[0]
+    print(f"📡 Attaching to session '{session_id}':")
+    print(f"   {command[:120]}...")
+    print()
+
+    stop_event = threading.Event()
+    monitor = threading.Thread(
+        target=_monitor_pool_status,
+        args=(sandbox, stop_event),
+        daemon=True,
+    )
+    monitor.start()
+    try:
+        _stream_session_logs(sandbox, session_id, command_id)
+    except KeyboardInterrupt:
+        print("\n\n⏸️  Detached from stream. The eval is still running in the sandbox.")
+        print("   Re-attach with: --phase attach")
+    finally:
+        stop_event.set()
+        monitor.join(timeout=15)
+
+    final = sandbox.process.get_session_command(session_id, command_id)
+    print(f"\n🏁 Eval finished with exit code {final.exit_code}")
     return state
 
 
@@ -820,6 +973,25 @@ def _monitor_pool_status(sandbox, stop_event: threading.Event, interval: int = 1
         stop_event.wait(interval)
 
 
+def _auto_fetch_loop(sandbox, state, args, stop_event: threading.Event, interval: int) -> None:
+    """Background thread: periodically fetch results so they survive laptop disconnects.
+
+    GPU sandboxes are ephemeral — if the sandbox is stopped or auto-deleted,
+    all results are lost. This thread fetches every `interval` seconds so
+    the latest results are always on the laptop.
+    """
+    fetch_count = 0
+    while not stop_event.is_set():
+        try:
+            path = _do_fetch(sandbox, state, args, verbose=False)
+            if path:
+                fetch_count += 1
+                print(f"\n💾 [auto-fetch #{fetch_count}] Results saved to {path}", flush=True)
+        except Exception:
+            pass  # Fail silently; the eval is the primary concern
+        stop_event.wait(interval)
+
+
 def _stream_session_logs(sandbox, session_id: str, command_id: str, stop_event: threading.Event = None) -> None:
     """Poll-based live tail of a session command's combined stdout/stderr.
 
@@ -852,37 +1024,82 @@ def _stream_session_logs(sandbox, session_id: str, command_id: str, stop_event: 
 # --------------------------------------------------------------------------
 
 def phase_fetch(sandbox, state: dict, args) -> dict:
+    _do_fetch(sandbox, state, args, verbose=True)
+    return state
+
+
+def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
+    """Fetch results from the sandbox. Returns the local archive path.
+
+    Shared by phase_fetch (interactive) and the auto-fetch background thread.
+    """
     repo_dir = get_repo_dir(sandbox, state, args)
     remote_archive = f"/tmp/dsgym_results_{int(time.time())}.tar.gz"
-    print(f"📦 Archiving evaluation_results/ (+ submissions/) inside the sandbox -> {remote_archive} ...")
-    run(sandbox, (
-        f"cd {repo_dir} && tar czf {remote_archive} "
+    if verbose:
+        print(f"📦 Archiving evaluation_results/ (+ submissions/) inside the sandbox -> {remote_archive} ...")
+    resp = sandbox.process.exec(
+        f"cd {shlex.quote(repo_dir)} && tar czf {remote_archive} "
         f"evaluation_results $(test -d submissions && echo submissions)"
-    ))
+    )
+    if resp.exit_code != 0:
+        if verbose:
+            print(f"⚠️  Archive failed (exit {resp.exit_code})")
+        return None
 
     local_dir = Path(args.local_results_dir).expanduser()
     local_dir.mkdir(parents=True, exist_ok=True)
     local_archive = local_dir / Path(remote_archive).name
 
-    print(f"⬇️  Downloading to {local_archive} ...")
-    sandbox.fs.download_file(remote_archive, str(local_archive))
+    if verbose:
+        print(f"⬇️  Downloading to {local_archive} ...")
+    try:
+        sandbox.fs.download_file(remote_archive, str(local_archive))
+    except Exception as e:
+        if verbose:
+            print(f"⚠️  Download failed: {e}")
+        return None
 
-    print(f"📂 Extracting into {local_dir} ...")
-    with tarfile.open(local_archive) as tf:
-        tf.extractall(local_dir)
+    if verbose:
+        print(f"📂 Extracting into {local_dir} ...")
+    try:
+        with tarfile.open(local_archive) as tf:
+            tf.extractall(local_dir)
+    except Exception as e:
+        if verbose:
+            print(f"⚠️  Extract failed: {e}")
+        return None
 
-    print(f"✅ Results available at: {local_dir}")
+    if verbose:
+        print(f"✅ Results available at: {local_dir}")
     state["last_fetch"] = str(local_archive)
     save_state(args.state_file, state)
+    return str(local_archive)
 
-    print(
-        "\n💰 Reminder: the sandbox is still RUNNING and billing until you stop it.\n"
-        f"   Run:  daytona/.venv/bin/python daytona/orchestrate.py --phase kill --state-file {args.state_file}\n"
-        "   This only STOPS it (billing stops, results/filesystem preserved) — nothing is\n"
-        "   deleted unless you separately pass --delete-sandbox (and it will refuse to delete\n"
-        "   unless this fetch is on record, since you just ran it, or --force)."
-    )
-    return state
+
+# --------------------------------------------------------------------------
+# Phase: auto-fetch  (periodically fetch results in a loop)
+# --------------------------------------------------------------------------
+
+def phase_auto_fetch(sandbox, state: dict, args) -> dict:
+    """Periodically fetch results from the sandbox every --auto-fetch-interval seconds.
+
+    Runs forever until interrupted (Ctrl-C) or the sandbox disappears.
+    Use this as a background safety net so results are preserved even if
+    your laptop dies or the sandbox gets auto-deleted.
+    """
+    interval = getattr(args, "auto_fetch_interval", 1200)  # default 20 min
+    print(f"🔄 Auto-fetch every {interval}s ({interval // 60} min). Ctrl-C to stop.")
+    fetch_count = 0
+    while True:
+        try:
+            path = _do_fetch(sandbox, state, args, verbose=True)
+            if path:
+                fetch_count += 1
+                print(f"   [auto-fetch #{fetch_count}] Saved to {path}")
+        except Exception as e:
+            print(f"⚠️  Auto-fetch failed: {e}")
+        print(f"   Next fetch in {interval // 60} min... (press Ctrl-C to stop)")
+        time.sleep(interval)
 
 
 # --------------------------------------------------------------------------
@@ -892,12 +1109,27 @@ def phase_fetch(sandbox, state: dict, args) -> dict:
 def phase_teardown(daytona: Daytona, sandbox, state: dict, args) -> dict:
     print("🧹 Stopping manager + executor processes inside the sandbox...")
     _stop_services(sandbox)
-    print(f"🛑 Stopping sandbox {sandbox.id} (billing stops; results/filesystem preserved)...")
+
+    # GPU sandboxes are ephemeral — stopping deletes the filesystem.
+    # Auto-fetch results before stopping if we haven't already.
+    if not state.get("last_fetch"):
+        print("⚠️  GPU sandboxes are ephemeral — stopping will DELETE the sandbox.")
+        print("📦 Auto-fetching results before stop...")
+        try:
+            state = phase_fetch(sandbox, state, args)
+        except Exception as e:
+            print(f"⚠️  Auto-fetch failed: {e}")
+            if not getattr(args, "force", False):
+                print("🛑 Refusing to stop without fetching results. Pass --force to skip.", file=sys.stderr)
+                return state
+
+    print(f"🛑 Stopping sandbox {sandbox.id} (sandbox will be deleted — GPU sandboxes are ephemeral)...")
     try:
         daytona.stop(sandbox)
     except Exception as e:
         print(f"⚠️  Stop failed: {e}")
-    _maybe_delete(daytona, sandbox, state, args, warn_label="teardown")
+    #NOTE: bug below in maybe_delete, commented out for now
+    # _maybe_delete(daytona, sandbox, state, args, warn_label="teardown")
     return state
 
 
@@ -1007,14 +1239,28 @@ def phase_kill(daytona: Daytona, state: dict, args) -> dict:
             save_state(args.state_file, state)
         return state
 
+    # GPU sandboxes are ephemeral — stopping deletes the filesystem.
+    # Auto-fetch results before stopping if we haven't already.
+    if not state.get("last_fetch"):
+        print("⚠️  GPU sandboxes are ephemeral — stopping will DELETE the sandbox.")
+        print("📦 Auto-fetching results before stop...")
+        try:
+            state = phase_fetch(sandbox, state, args)
+        except Exception as e:
+            print(f"⚠️  Auto-fetch failed: {e}")
+            if not getattr(args, "force", False):
+                print("🛑 Refusing to stop without fetching results. Pass --force to skip.", file=sys.stderr)
+                return state
+
     print(f"🛑 Stopping sandbox {sandbox_id} (state={sandbox.state})... "
-          "(compute billing stops here; the filesystem/results are preserved)")
+          "(sandbox will be deleted — GPU sandboxes are ephemeral)")
     try:
         daytona.stop(sandbox)
     except Exception as e:
         print(f"⚠️  Stop failed: {e}")
 
-    _maybe_delete(daytona, sandbox, state, args, warn_label="kill")
+    #NOTE: bug below in maybe_delete, commented out for now
+    # _maybe_delete(daytona, sandbox, state, args, warn_label="kill")
     print("✅ Done.")
     return state
 
@@ -1081,15 +1327,15 @@ def phase_sweep(daytona: Daytona, state: dict, args) -> dict:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--phase", default="all",
-                    choices=["create", "preflight", "bootstrap", "launch", "run", "fetch", "stop-run", "exec",
+                    choices=["create", "preflight", "bootstrap", "launch", "run", "fetch", "auto-fetch", "stop-run", "attach", "exec",
                             "teardown", "kill", "sweep", "status", "all"])
     p.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
 
     # Sandbox resources
-    p.add_argument("--cpu", type=int, default=4)
-    p.add_argument("--memory", type=int, default=32, help="GB RAM")
+    p.add_argument("--cpu", type=int, default=16)
+    p.add_argument("--memory", type=int, default=64, help="GB RAM")
     p.add_argument("--disk", type=int, default=100, help="GB disk")
-    p.add_argument("--gpu-count", type=int, default=1)
+    p.add_argument("--gpu-count", type=int, default=2)
     p.add_argument("--gpu-type", default="RTX_4090",
                    help="Comma-separated preference list, e.g. RTX-4090, RTX-5090 (default: RTX-4090)")
     p.add_argument("--adopt-sandbox-id", default=None,
@@ -1105,15 +1351,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Repo
     p.add_argument("--repo-url", default="https://github.com/Adamwewe/DSGym.git")
-    p.add_argument("--branch", default="feature/scaffolding-with-cuda",
-                   help="Git branch to clone into the sandbox (default: feature/scaffolding-with-cuda).")
+    p.add_argument("--branch", default="feature/daytona-added", #default="feature/scaffolding-with-cuda",
+                   help="Git branch to clone into the sandbox (default: feature/scaffolding-with-cuda or feature/daytona-added).")
     p.add_argument("--github-user", default=os.environ.get("GITHUB_USER"))
     p.add_argument("--github-token", default=os.environ.get("GITHUB_TOKEN"),
                    help="Needed only if the repo is private")
 
     # Direct-process executors
     p.add_argument("--num-executors", type=int, default=4)
-    p.add_argument("--execution-timeout", type=int, default=1200)
+    p.add_argument("--execution-timeout", type=int, default=7200)
     p.add_argument("--mem-limit", default="4G",
                    help="(Deprecated, no-op) Kept for CLI compatibility.")
     p.add_argument("--cpus-per-executor", type=float, default=1.0,
@@ -1132,7 +1378,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", default="litellm",
                    choices=["litellm", "vllm", "sglang"],
                    help="Inference backend passed through to dsgym eval (default: litellm).")
-    p.add_argument("--limit", type=int, default=5, help="Number of samples to evaluate (adjustable)")
+    p.add_argument("--limit", type=int, default=100, help="Number of samples to evaluate (adjustable)")
     p.add_argument("--max-workers", type=int, default=None,
                    help="Defaults to --num-executors so workers == executor pool size")
     p.add_argument("--dags", type=lambda x: str(x).lower() not in ("false", "0", "no"),
@@ -1162,6 +1408,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Results
     p.add_argument("--local-results-dir", default=str(SCRIPT_DIR / "results"))
+    p.add_argument("--auto-fetch-interval", type=int, default=1200,
+                   help="Auto-fetch interval in seconds (default: 1200 = 20 min). "
+                        "Used by the background auto-fetch thread in --phase run, and by --phase auto-fetch.")
 
     # Teardown / kill / sweep
     p.add_argument("--delete-sandbox", action="store_true",
@@ -1217,6 +1466,8 @@ def main():
             state = phase_run(get_sandbox(daytona, state), state, args)
         elif phase == "fetch":
             state = phase_fetch(get_sandbox(daytona, state), state, args)
+        elif phase == "auto-fetch":
+            state = phase_auto_fetch(get_sandbox(daytona, state), state, args)
         elif phase == "teardown":
             state = phase_teardown(daytona, get_sandbox(daytona, state), state, args)
         elif phase == "kill":
@@ -1229,6 +1480,8 @@ def main():
             state = phase_exec(get_sandbox(daytona, state), state, args)
         elif phase == "stop-run":
             state = phase_stop_run(get_sandbox(daytona, state), state, args)
+        elif phase == "attach":
+            state = phase_attach(get_sandbox(daytona, state), state, args)
 
     print("\n✅ Done.")
 

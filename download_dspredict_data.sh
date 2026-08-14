@@ -4,7 +4,7 @@
 #
 # Prerequisites:
 #   pip install kaggle
-#   Place your Kaggle API credentials at ~/.kaggle/kaggle.json
+#   Place your Kaggle API access token at ~/.kaggle/access_token
 #   (Download from https://www.kaggle.com/settings → "API" → "Create New Token")
 #
 # Note: Many competitions require you to accept their rules on Kaggle before

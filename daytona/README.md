@@ -71,6 +71,13 @@ Debug inside the running sandbox without SSH:
 
 # Stop a run that is wasting tokens on a broken setup
 .venv/bin/python orchestrate.py --phase stop-run
+
+# Kill everything (dsgym eval + manager + executors) and relaunch fresh
+.venv/bin/python orchestrate.py --phase stop-run
+.venv/bin/python orchestrate.py --phase launch --num-executors 4 --execution-timeout 7200
+
+# Re-attach to a running eval's live log stream (e.g. after laptop restart)
+.venv/bin/python orchestrate.py --phase attach
 ```
 
 ## Workflow
@@ -119,10 +126,10 @@ All flags are optional unless marked **Required**.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--cpu` | 4 | Sandbox vCPUs |
-| `--memory` | 32 | Sandbox RAM (GiB) |
+| `--cpu` | 16 | Sandbox vCPUs |
+| `--memory` | 64 | Sandbox RAM (GiB) |
 | `--disk` | 100 | Sandbox disk (GiB) |
-| `--gpu-count` | 1 | Number of GPUs (Daytona GPU sandboxes typically expose one) |
+| `--gpu-count` | 2 | Number of GPUs |
 | `--gpu-type` | `RTX_4090` | Comma-separated GPU preference list, e.g. `RTX_4090,RTX_5090` |
 | `--create-timeout` | 1800 | Seconds to wait for the sandbox to reach `STARTED` |
 
@@ -131,7 +138,7 @@ All flags are optional unless marked **Required**.
 | Flag | Default | Description |
 |---|---|---|
 | `--num-executors` | 4 | Number of executor-kaggle workers to start |
-| `--execution-timeout` | 1200 | Seconds the executor will wait for a single code execution |
+| `--execution-timeout` | 7200 | Seconds the executor will wait for a single code execution (2 hours) |
 | `--allocation-timeout` | 3600 | Seconds the manager will queue a task waiting for a free worker |
 | `--mem-limit` | 4G | Deprecated, kept for CLI compatibility only |
 | `--cpus-per-executor` | 1.0 | Deprecated, kept for CLI compatibility only |
@@ -166,6 +173,7 @@ All flags are optional unless marked **Required**.
 | `--command` | — | Shell command to run inside the sandbox (required for `--phase exec`) |
 | `--exec-cwd` | repo root | Working directory for `--phase exec` |
 | `--local-results-dir` | `daytona/results` | Local directory where the fetched archive is extracted |
+| `--auto-fetch-interval` | 1200 | Auto-fetch interval in seconds (20 min). Used by `--phase run` background thread and `--phase auto-fetch` |
 | `--repo-url` | `https://github.com/Adamwewe/DSGym.git` | Git repo cloned into the sandbox |
 | `--branch` | `feature/scaffolding-with-cuda` | Git branch to clone |
 | `--github-user` / `--github-token` | — | Only needed if `--repo-url` is private |
@@ -184,9 +192,9 @@ Larger DSPredict run with DAGs:
 ```bash
 .venv/bin/python orchestrate.py --phase all \
   --dataset dspredict-hard \
-  --num-executors 8 --limit 20 \
+  --num-executors 8 --limit 2 \
   --dags true --prompt adaptive-revision \
-  --max-turns 30 --execution-timeout 3600 --allocation-timeout 7200
+  --max-turns 3 --execution-timeout 3600 --allocation-timeout 7200
 ```
 
 Sample a subset once, then evaluate with different settings on the same sample:
@@ -265,6 +273,19 @@ Use a different model or backend:
   to that file, and downloads the Kaggle competition data via the appropriate
   `download_*.sh` script.
 
+  **Kaggle download can take 10–30 minutes** (30+ competitions). The
+  orchestrator waits for the script to finish before printing any output, so
+  the terminal will appear frozen at `bash download_dspredict_data.sh`. To
+  check progress from a second terminal:
+
+  ```bash
+  .venv/bin/python orchestrate.py --phase exec --command "find /root/DSGym/data/data/dspredict-sampled -maxdepth 2 -type f | wc -l"
+  .venv/bin/python orchestrate.py --phase exec --command "ls /root/DSGym/data/data/dspredict-sampled/"
+  ```
+
+  The download timeout is 1 hour. Re-running `bootstrap` is safe — the script
+  skips competitions that are already downloaded.
+
 - **launch** — generates a `daytona_container_config.json` pointing each
   worker at a distinct `localhost` port, starts the manager process on port
   5000, then starts N executor workers in their own mount namespaces. Each
@@ -287,9 +308,29 @@ Use a different model or backend:
   without stopping the manager/executors or the sandbox. Use this when an eval
   is burning tokens on a broken setup.
 
+- **attach** — re-attaches to a running eval session's live log stream. Finds
+  the latest `dsgym-eval-*` session that's still running and re-streams its
+  stdout/stderr. Use this when your laptop died or you Ctrl-C'd the orchestrator
+  but the eval is still running inside the sandbox.
+
+```bash
+.venv/bin/python orchestrate.py --phase attach
+```
+
 - **fetch** — `tar czf`s `evaluation_results/` (+ `submissions/`) inside the
   sandbox and downloads the archive to `daytona/results/` on your laptop.
-  Prints a reminder that the sandbox is still billing until you stop it.
+
+- **auto-fetch** — runs `fetch` in a loop every `--auto-fetch-interval` seconds
+  (default 1200 = 20 min). Use as a standalone background safety net:
+
+  ```bash
+  # In a separate terminal, runs forever until Ctrl-C:
+  .venv/bin/python orchestrate.py --phase auto-fetch
+  ```
+
+  This is critical because **GPU sandboxes are ephemeral** — if the sandbox
+  is stopped or auto-deleted, all results are lost. Auto-fetch ensures the
+  latest results are always on your laptop.
 
 - **teardown** — kills all manager/executor background processes inside the
   sandbox, then STOPS the sandbox (billing stops; filesystem/results
@@ -326,6 +367,11 @@ deletion explicitly:
 - **`--phase kill`** — the fast path. STOPS the sandbox from the current
   state file (or `--sandbox-id <id>` if you don't have/trust the state
   file). This alone is enough to stop billing.
+
+  **GPU sandboxes are ephemeral** — stopping them permanently deletes the
+  filesystem. `kill` and `teardown` will **auto-fetch results before
+  stopping** if no `fetch` is on record. Pass `--force` to skip the
+  auto-fetch (results will be lost).
 
   ```bash
   .venv/bin/python orchestrate.py --phase kill

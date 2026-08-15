@@ -72,6 +72,8 @@ def add_eval_parser(subparsers):
                        help="Maximum turns per sample")
     parser.add_argument("--temperature", type=float, default=0.0,
                        help="Sampling temperature")
+    parser.add_argument("--seed", type=int, default=42,
+                       help="Random seed for reproducible generation (default: 42)")
     
     # Infrastructure
     parser.add_argument("--manager-url", type=str, default="http://localhost:5000",
@@ -140,6 +142,7 @@ def run_eval(args) -> int:
         "manager_url": args.manager_url,
         "max_turns": args.max_turns,
         "temperature": args.temperature,
+        "seed": args.seed,
         "output_dir": args.output_dir,
     }
 

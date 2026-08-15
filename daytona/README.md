@@ -30,6 +30,14 @@ into an image):
 | `KAGGLE_TOKEN` | Modern Kaggle access token (starts with `KGAT_...`), written to `~/.kaggle/access_token` inside the sandbox — required for DSPredict data download and submission scoring. |
 | `GITHUB_TOKEN` / `GITHUB_USER` | Only needed if `--repo-url` points at a private repo. |
 
+## Quick start
+
+Once the environment is setup, run the bash script to spin up everything for the first run
+
+```
+./run_experiments.sh
+```
+
 ## Usage
 
 Run everything end-to-end (create → preflight → bootstrap → launch → run → fetch):
@@ -160,6 +168,7 @@ All flags are optional unless marked **Required**.
 | `--sample-seed` | 42 | Seed for `--sample-n` |
 | `--max-turns` | 15 | Maximum agent turns per sample |
 | `--temperature` | 0.0 | Sampling temperature |
+| `--seed` | 42 | Random seed for LLM generation reproducibility |
 | `--run-name` | — | Custom prefix for output files |
 | `--tag` | — | Label included in output JSON/CSV for cross-run filtering |
 | `--output-dir` | `<repo>/evaluation_results` | Directory inside the sandbox for evaluation outputs |
@@ -272,6 +281,19 @@ Use a different model or backend:
   supports the modern `~/.kaggle/access_token` format, writes `$KAGGLE_TOKEN`
   to that file, and downloads the Kaggle competition data via the appropriate
   `download_*.sh` script.
+
+  **Kaggle data is stored on a persistent Daytona volume**
+  (`dsgym-kaggle-data`) mounted at `/mnt/kaggle-data`. The first `bootstrap`
+  downloads all competitions (10–30 min) and copies them to the volume.
+  Subsequent sandboxes find the data on the volume and skip the download
+  entirely — just symlinks into the repo's `data/data/` directory.
+
+  **The volume also stores `evaluation_results/`** — every `fetch` and
+  `auto-fetch` copies results to the volume, so they persist across sandbox
+  deletions. When a new sandbox bootstraps, it restores any previous results
+  from the volume.
+
+  If the volume is missing or empty, `bootstrap` downloads from scratch.
 
   **Kaggle download can take 10–30 minutes** (30+ competitions). The
   orchestrator waits for the script to finish before printing any output, so

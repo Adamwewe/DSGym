@@ -2,8 +2,8 @@
 # temp.sh — end-to-end DSGym experiment runner.
 #
 # Usage:
-#   ./temp.sh                    # full pipeline: create → bootstrap → launch → experiments → kill
-#   ./temp.sh --skip-create      # skip create/bootstrap/launch (reuse existing sandbox)
+#   ./run_experiments.sh                    # full pipeline: create → bootstrap → launch → experiments → kill
+#   ./run_experiments.sh --skip-create      # skip create/bootstrap/launch (reuse existing sandbox)
 #
 # Prerequisites (export before running):
 #   export DAYTONA_API_KEY=...
@@ -54,7 +54,8 @@ BACKEND="litellm"
 MAX_WORKERS=4
 LIMIT=100
 DAGS="--dags true"
-
+SEED=42  # change this for a new run with a different seed
+echo "SEED: $SEED"
 run_experiment() {
   local prompt="$1"
   local label="$2"
@@ -76,6 +77,7 @@ run_experiment() {
     --max-workers "$MAX_WORKERS" \
     --limit "$LIMIT" \
     $DAGS \
+    --seed "$SEED" \
     --prompt "$prompt" \
     --tag "$label"
 

@@ -108,6 +108,7 @@ try:
         Resources,
         SandboxState,
         SessionExecuteRequest,
+        VolumeMount,
     )
 except ImportError:
     print(
@@ -128,6 +129,10 @@ EXECUTOR_START_PORT = 60000  # legacy host-port mapping kept for parity
 # Applied to every sandbox this script creates, so `sweep` can find (and
 # kill) them later even without a local state file.
 SANDBOX_LABELS = {"project": "dsgym", "purpose": "dspredict-gpu-smoketest"}
+# Persistent volume for Kaggle competition data — survives sandbox deletion
+# so we don't re-download 50+ competitions on every new sandbox.
+KAGGLE_DATA_VOLUME_NAME = "dsgym-kaggle-data"
+KAGGLE_DATA_VOLUME_MOUNT = "/mnt/kaggle-data"
 # Direct-process runtime layout
 SANDBOX_DATA_DIR = "/data"
 SANDBOX_SUBMISSION_DIR = "/submission"
@@ -314,6 +319,26 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
     print(f"🚀 Creating Daytona GPU sandbox (cpu={args.cpu}, memory={args.memory}GB, "
           f"disk={args.disk}GB, gpu={args.gpu_count}, gpu_type={gpu_types or 'any available'})...")
 
+    # Create or get the persistent Kaggle data volume.
+    print(f"💾 Ensuring volume '{KAGGLE_DATA_VOLUME_NAME}' exists...")
+    volume = daytona.volume.get(KAGGLE_DATA_VOLUME_NAME, create=True)
+    # Wait for volume to be ready (max 2 min)
+    for _ in range(120):
+        if volume.state == "ready":
+            break
+        time.sleep(1)
+        volume = daytona.volume.get(KAGGLE_DATA_VOLUME_NAME)
+    if volume.state != "ready":
+        print(f"⚠️  Volume '{KAGGLE_DATA_VOLUME_NAME}' not ready after 2 min (state={volume.state}). "
+              "Proceeding without volume mount — Kaggle data will need to be re-downloaded.")
+        volume_mounts = []
+    else:
+        print(f"   Volume ready (id={volume.id}). Will mount at {KAGGLE_DATA_VOLUME_MOUNT}.")
+        volume_mounts = [VolumeMount(
+            volume_id=volume.id,
+            mount_path=KAGGLE_DATA_VOLUME_MOUNT,
+        )]
+
     image = (
         Image.base("ubuntu:22.04")
         .run_commands(
@@ -337,6 +362,7 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
         auto_delete_interval=0,  # GPU sandboxes must be ephemeral (Daytona requirement)
         auto_stop_interval=999999,  # ~694 days — effectively "never auto-stop"
         labels=SANDBOX_LABELS,
+        volumes=volume_mounts,
     )
     try:
         sandbox = daytona.create(params)
@@ -557,6 +583,13 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
         run(sandbox, "curl -LsSf https://astral.sh/uv/install.sh | sh")
     run(sandbox, "$HOME/.local/bin/uv sync", cwd=repo_dir, timeout=900)
 
+    # Restore evaluation_results from the persistent volume if available
+    vol_results = f"{KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results"
+    vol_check = sandbox.process.exec(f"test -d {vol_results} && test -n \"$(ls -A {vol_results} 2>/dev/null)\" && echo 'has_results'")
+    if vol_check.exit_code == 0 and "has_results" in (vol_check.result or ""):
+        print(f"💾 Restoring evaluation_results from volume '{KAGGLE_DATA_VOLUME_NAME}'...")
+        run(sandbox, f"mkdir -p {repo_dir}/evaluation_results && cp -a {vol_results}/* {repo_dir}/evaluation_results/", check=False)
+
     _ensure_system_packages(sandbox)
     _install_manager_deps(sandbox, repo_dir)
     _install_executor_deps(sandbox, repo_dir)
@@ -580,48 +613,61 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
         Path(tmp_path).unlink(missing_ok=True)
     run(sandbox, "mkdir -p ~/.kaggle && mv /tmp/kaggle_access_token ~/.kaggle/access_token && chmod 600 ~/.kaggle/access_token")
 
-    download_script = {
-        "dspredict-sampled": "download_dspredict_data.sh",
-        "dspredict-hard": "download_dspredict_data_full.sh",
-        "dspredict-easy": "download_dspredict_data_full.sh",
-    }[args.dataset]
-    print(f"📊 Downloading Kaggle competition data via {download_script} "
-          f"(skips files already present, safe to re-run)...")
-    run(sandbox, f"PATH=$HOME/.local/bin:$PATH $HOME/.local/bin/uv run kaggle --version", cwd=repo_dir)
-    run(sandbox, (
-        f"PATH=$HOME/.local/bin:$PATH "
-        f"bash {download_script}"
-    ), cwd=repo_dir, timeout=3600)
+    # ── Kaggle data: use persistent volume if available ──────────────────────
+    data_base = f"{repo_dir}/data/data"
+    volume_data_dir = f"{KAGGLE_DATA_VOLUME_MOUNT}/dspredict"
+    volume_sampled_dir = f"{KAGGLE_DATA_VOLUME_MOUNT}/dspredict-sampled"
+
+    # Check if the volume already has data from a previous sandbox
+    volume_check = sandbox.process.exec(f"test -d {volume_data_dir} && test -n \"$(ls -A {volume_data_dir} 2>/dev/null)\" && echo 'has_data'")
+
+    if volume_check.exit_code == 0 and "has_data" in (volume_check.result or ""):
+        print(f"💾 Found existing Kaggle data on volume '{KAGGLE_DATA_VOLUME_NAME}' — skipping download.")
+        # Symlink the volume dirs into the repo's data/data/
+        run(sandbox, f"mkdir -p {data_base}")
+        for name, target in [("dspredict", volume_data_dir), ("dspredict-sampled", volume_sampled_dir)]:
+            repo_path = f"{data_base}/{name}"
+            run(sandbox, f"rm -rf {repo_path} && ln -s {target} {repo_path}", check=False)
+        # Also symlink split dirs
+        for split in ("dspredict-hard", "dspredict-easy"):
+            split_path = f"{data_base}/{split}"
+            run(sandbox, f"rm -rf {split_path} && ln -s {volume_data_dir} {split_path}", check=False)
+    else:
+        print(f"📭 No existing data on volume — downloading from Kaggle (this takes 10-30 min)...")
+        download_script = {
+            "dspredict-sampled": "download_dspredict_data.sh",
+            "dspredict-hard": "download_dspredict_data_full.sh",
+            "dspredict-easy": "download_dspredict_data_full.sh",
+        }[args.dataset]
+        run(sandbox, f"PATH=$HOME/.local/bin:$PATH $HOME/.local/bin/uv run kaggle --version", cwd=repo_dir)
+        run(sandbox, (
+            f"PATH=$HOME/.local/bin:$PATH "
+            f"bash {download_script}"
+        ), cwd=repo_dir, timeout=3600)
+
+        # Copy downloaded data to the volume for future sandboxes
+        print(f"💾 Copying Kaggle data to volume '{KAGGLE_DATA_VOLUME_NAME}' for future use...")
+        run(sandbox, f"mkdir -p {KAGGLE_DATA_VOLUME_MOUNT}", check=False)
+        if sandbox.process.exec(f"test -d {data_base}/dspredict").exit_code == 0:
+            run(sandbox, f"cp -a {data_base}/dspredict {volume_data_dir}", check=False, timeout=3600)
+        if sandbox.process.exec(f"test -d {data_base}/dspredict-sampled").exit_code == 0:
+            run(sandbox, f"cp -a {data_base}/dspredict-sampled {volume_sampled_dir}", check=False, timeout=3600)
 
     # ── Post-download data setup ────────────────────────────────────────────
-    # The download scripts put data in data/data/dspredict/ (or dspredict-sampled/),
-    # but dsgym eval looks in data/data/dspredict-{split}/ (e.g. dspredict-hard/).
-    # We:
-    #   1. Clean up empty dirs and 0-byte zips from failed downloads
-    #   2. Replace dspredict-hard/ and dspredict-easy/ with symlinks to dspredict/
-    #   3. Create placeholder dirs for competitions that failed to download,
-    #      so the eval doesn't try to re-download them (which hangs on kagglesdk)
-    data_base = f"{repo_dir}/data/data"
-    venv_python = get_venv_python(repo_dir)
-
-    # 1. Clean up failed downloads in all dspredict dirs
+    # Clean up empty dirs and 0-byte zips from failed downloads
     run(sandbox, (
         f"find {data_base}/dspredict {data_base}/dspredict-sampled -name '*.zip' -size 0 -delete 2>/dev/null; "
         f"find {data_base}/dspredict {data_base}/dspredict-sampled -maxdepth 1 -type d -empty -exec rmdir {{}} + 2>/dev/null; "
         f"echo 'Cleaned empty zips and dirs'"
     ), check=False)
 
-    # 2. Replace split dirs with symlinks to dspredict/
+    # Replace split dirs with symlinks to dspredict/
     run(sandbox, f"mkdir -p {data_base}/dspredict", check=False)
     for split in ("dspredict-hard", "dspredict-easy"):
         split_path = f"{data_base}/{split}"
-        # Remove whatever's there (real dir, old symlink, etc.) and create fresh symlink
         run(sandbox, f"rm -rf {split_path} && ln -s {data_base}/dspredict {split_path}", check=False)
 
-    # 3. Create placeholder dirs for competitions that failed to download.
-    #    The eval checks `if not competition_path.exists()` — if the dir exists,
-    #    it skips the download attempt (which would hang). The agent will get
-    #    a file-not-found error when trying to load data, which is handled gracefully.
+    # Create placeholder dirs for competitions that failed to download
     placeholder_script = (
         "#!/bin/bash\n"
         f"cd {shlex.quote(repo_dir)}\n"
@@ -786,6 +832,7 @@ def phase_run(sandbox, state: dict, args) -> dict:
         f"--dags {'true' if args.dags else 'false'}",
         f"--max-turns {args.max_turns}",
         f"--temperature {args.temperature}",
+        f"--seed {args.seed}",
         f"--manager-url http://localhost:{MANAGER_PORT}",
         f"--output-dir {shlex.quote(args.output_dir or f'{repo_dir}/evaluation_results')}",
     ]
@@ -1032,6 +1079,7 @@ def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
     """Fetch results from the sandbox. Returns the local archive path.
 
     Shared by phase_fetch (interactive) and the auto-fetch background thread.
+    Also copies results to the persistent volume so they survive sandbox deletion.
     """
     repo_dir = get_repo_dir(sandbox, state, args)
     remote_archive = f"/tmp/dsgym_results_{int(time.time())}.tar.gz"
@@ -1045,6 +1093,13 @@ def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
         if verbose:
             print(f"⚠️  Archive failed (exit {resp.exit_code})")
         return None
+
+    # Copy results to the persistent volume so they survive sandbox deletion
+    sandbox.process.exec(
+        f"mkdir -p {KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results && "
+        f"cp -a {shlex.quote(repo_dir)}/evaluation_results/* {KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results/ 2>/dev/null || true",
+        timeout=120,
+    )
 
     local_dir = Path(args.local_results_dir).expanduser()
     local_dir.mkdir(parents=True, exist_ok=True)
@@ -1401,6 +1456,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Directory for dsgym eval output inside the sandbox (default: <repo>/evaluation_results).")
     p.add_argument("--max-turns", type=int, default=15, help="Maximum agent turns per sample.")
     p.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature.")
+    p.add_argument("--seed", type=int, default=42,
+                   help="Random seed for LLM generation reproducibility (default: 42). Passed to dsgym eval --seed.")
     p.add_argument("--tag", default=None,
                    help="Optional tag to label this run (e.g. 'no-cuda', 'baseline'), included in "
                         "dsgym eval's JSON/CSV output for cross-run filtering.")

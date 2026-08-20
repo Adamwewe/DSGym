@@ -38,6 +38,23 @@ Once the environment is setup, run the bash script to spin up everything for the
 ./run_experiments.sh
 ```
 
+## Monitoring runs
+
+While an eval streams to your laptop, watch for healthy per-challenge progress:
+
+- **Container allocation** — `🔧 Allocated container: N` and pool status (`🖥️  Pool: X/Y busy`)
+- **Code execution** — agent `<python>` blocks producing output in the stream
+- **Result summaries** — `💾 Saved prediction to: ...` followed by medal/score summaries
+- **Kaggle upload** — `✅ Upload complete: ...` after each submission is scored
+
+**Early abort rule:** if the **first** challenge never prints `✅ Upload complete`
+within ~1 hour of `🏃 Starting evaluation`, code execution or executor allocation
+is likely broken — kill the run (`--phase stop-run`) and relaunch the executor pool
+(`--phase launch`) before retrying.
+
+The orchestrator enforces this automatically during `--phase run` via
+`--first-upload-timeout` (default 3600s).
+
 ## Usage
 
 Run everything end-to-end (create → preflight → bootstrap → launch → run → fetch):

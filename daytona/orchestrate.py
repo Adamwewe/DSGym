@@ -21,12 +21,13 @@ Phases (run with --phase, or `all` to run everything except teardown):
   run        Write KAGGLE_TOKEN to ~/.kaggle/access_token + push OPENAI_API_KEY,
              start `dsgym eval` in a background Daytona session, and stream its
              stdout/stderr live to this terminal until it finishes.
-   fetch      Tar evaluation_results/ (+ submissions/) inside the sandbox and
-              download the archive to --local-results-dir.
+   fetch      Sync evaluation_results/ to the persistent volume, then tar and
+              download the archive to --local-results-dir. Volume sync runs
+              independently so results survive even when tar/download fails.
    auto-fetch Run fetch in a loop every --auto-fetch-interval seconds (default
-              1200 = 20 min). Use as a background safety net so results survive
-              even if your laptop dies. Also runs automatically as a background
-              thread during --phase run.
+              1200 = 20 min). Volume sync is attempted every cycle; laptop
+              download may fail without losing results on the volume. Also runs
+              automatically as a background thread during --phase run.
   teardown   Kill all manager/executor background processes inside the sandbox.
              By default the sandbox is only STOPPED afterwards (billing stops,
              filesystem preserved); add --delete-sandbox to also delete it
@@ -879,7 +880,12 @@ def phase_run(sandbox, state: dict, args) -> dict:
     af_thread.start()
 
     try:
-        _stream_session_logs(sandbox, eval_session_id, command_id)
+        _stream_session_logs(
+            sandbox,
+            eval_session_id,
+            command_id,
+            first_upload_timeout=args.first_upload_timeout,
+        )
     except KeyboardInterrupt:
         print("\n\n⏸️  Detached from stream. The eval is still running in the sandbox.")
         print("   Re-attach with:  --phase attach")
@@ -961,7 +967,12 @@ def phase_attach(sandbox, state: dict, args) -> dict:
     )
     monitor.start()
     try:
-        _stream_session_logs(sandbox, session_id, command_id)
+        _stream_session_logs(
+            sandbox,
+            session_id,
+            command_id,
+            first_upload_timeout=args.first_upload_timeout,
+        )
     except KeyboardInterrupt:
         print("\n\n⏸️  Detached from stream. The eval is still running in the sandbox.")
         print("   Re-attach with: --phase attach")
@@ -1030,29 +1041,78 @@ def _auto_fetch_loop(sandbox, state, args, stop_event: threading.Event, interval
     fetch_count = 0
     while not stop_event.is_set():
         try:
+            before_sync = state.get("last_volume_sync")
             path = _do_fetch(sandbox, state, args, verbose=False)
             if path:
                 fetch_count += 1
                 print(f"\n💾 [auto-fetch #{fetch_count}] Results saved to {path}", flush=True)
+            elif state.get("last_volume_sync") != before_sync:
+                fetch_count += 1
+                print(
+                    f"\n💾 [auto-fetch #{fetch_count}] Results synced to volume "
+                    f"'{KAGGLE_DATA_VOLUME_NAME}' (laptop download skipped)",
+                    flush=True,
+                )
         except Exception:
             pass  # Fail silently; the eval is the primary concern
         stop_event.wait(interval)
 
 
-def _stream_session_logs(sandbox, session_id: str, command_id: str, stop_event: threading.Event = None) -> None:
+def _stream_session_logs(
+    sandbox,
+    session_id: str,
+    command_id: str,
+    *,
+    first_upload_timeout: int = 3600,
+) -> None:
     """Poll-based live tail of a session command's combined stdout/stderr.
 
     Uses the simple sync get_session_command_logs (full output each call) and
     prints only the new suffix, so it works without an asyncio event loop.
+
+    Aborts early if the first challenge never reaches Kaggle upload — a sign
+    that code execution or executor allocation is broken.
     """
     printed = 0
+    eval_started_at: float | None = None
+    first_upload_seen = False
+    upload_marker = "Upload complete"
+
     while True:
         logs = sandbox.process.get_session_command_logs(session_id, command_id)
         output = logs.output or ""
         if len(output) > printed:
-            sys.stdout.write(output[printed:])
+            new_chunk = output[printed:]
+            sys.stdout.write(new_chunk)
             sys.stdout.flush()
             printed = len(output)
+
+            if eval_started_at is None and "Starting evaluation" in output:
+                eval_started_at = time.time()
+                print(
+                    f"\n👀 Health check: waiting for first challenge "
+                    f"'✅ {upload_marker}' (timeout {first_upload_timeout}s)...",
+                    flush=True,
+                )
+
+            if upload_marker in new_chunk:
+                first_upload_seen = True
+                print("\n✅ First challenge upload confirmed — executor pipeline healthy.", flush=True)
+
+        if (
+            eval_started_at is not None
+            and not first_upload_seen
+            and time.time() - eval_started_at > first_upload_timeout
+        ):
+            print(
+                f"\n❌ No '✅ {upload_marker}' within {first_upload_timeout}s for the first "
+                "challenge. Code execution or executor allocation is likely broken.",
+                file=sys.stderr,
+            )
+            print("🛑 Killing the eval run...", file=sys.stderr)
+            sandbox.process.exec("pkill -f 'dsgym eval' || true", check=False)
+            sandbox.process.exec("pkill -f 'uv run dsgym eval' || true", check=False)
+            sys.exit(1)
 
         cmd = sandbox.process.get_session_command(session_id, command_id)
         if cmd.exit_code is not None:
@@ -1075,31 +1135,93 @@ def phase_fetch(sandbox, state: dict, args) -> dict:
     return state
 
 
-def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
-    """Fetch results from the sandbox. Returns the local archive path.
+def _results_persisted(state: dict, sandbox_id: str) -> bool:
+    """True if results for this sandbox were synced to the laptop or volume."""
+    if state.get("sandbox_id") != sandbox_id:
+        return False
+    return bool(state.get("last_fetch") or state.get("last_volume_sync"))
 
-    Shared by phase_fetch (interactive) and the auto-fetch background thread.
-    Also copies results to the persistent volume so they survive sandbox deletion.
+
+def _sync_results_to_volume(
+    sandbox,
+    repo_dir: str,
+    state: dict,
+    args,
+    verbose: bool = False,
+) -> bool:
+    """Copy evaluation_results/ to the persistent volume (independent of tar).
+
+    This is the primary safety net for GPU sandboxes: it runs even when
+    archiving or laptop download fails.
+    """
+    results_dir = f"{repo_dir.rstrip('/')}/evaluation_results"
+    check = sandbox.process.exec(
+        f"test -d {shlex.quote(results_dir)} && "
+        f"test -n \"$(ls -A {shlex.quote(results_dir)} 2>/dev/null)\"",
+        timeout=30,
+    )
+    if check.exit_code != 0:
+        if verbose:
+            print("ℹ️  No evaluation_results to sync to volume yet.")
+        return False
+
+    vol_dir = f"{KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results"
+    if verbose:
+        print(
+            f"💾 Syncing evaluation_results/ -> {vol_dir} "
+            f"on volume '{KAGGLE_DATA_VOLUME_NAME}'..."
+        )
+    resp = sandbox.process.exec(
+        f"mkdir -p {shlex.quote(vol_dir)} && "
+        f"cp -a {shlex.quote(results_dir)}/* {shlex.quote(vol_dir)}/ 2>/dev/null || true",
+        timeout=600,
+    )
+    if resp.exit_code != 0:
+        if verbose:
+            print(f"⚠️  Volume sync failed (exit {resp.exit_code})")
+        return False
+
+    count_resp = sandbox.process.exec(
+        f"find {shlex.quote(vol_dir)} -maxdepth 1 -type f 2>/dev/null | wc -l",
+        timeout=30,
+    )
+    count = (count_resp.result or "").strip() if count_resp.exit_code == 0 else "?"
+    state["last_volume_sync"] = time.time()
+    save_state(args.state_file, state)
+    if verbose:
+        print(f"✅ Volume sync complete ({count} files on '{KAGGLE_DATA_VOLUME_NAME}').")
+    return True
+
+
+def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
+    """Fetch results from the sandbox. Returns the local archive path, or None.
+
+    Always attempts to sync evaluation_results/ to the persistent volume first.
+    Laptop download (tar + extract) is best-effort and may fail independently.
     """
     repo_dir = get_repo_dir(sandbox, state, args)
+    volume_ok = _sync_results_to_volume(sandbox, repo_dir, state, args, verbose=verbose)
+
     remote_archive = f"/tmp/dsgym_results_{int(time.time())}.tar.gz"
     if verbose:
-        print(f"📦 Archiving evaluation_results/ (+ submissions/) inside the sandbox -> {remote_archive} ...")
+        print(
+            f"📦 Archiving evaluation_results/ (+ submissions/) inside the sandbox "
+            f"-> {remote_archive} ..."
+        )
     resp = sandbox.process.exec(
         f"cd {shlex.quote(repo_dir)} && tar czf {remote_archive} "
-        f"evaluation_results $(test -d submissions && echo submissions)"
+        f"evaluation_results $(test -d submissions && echo submissions)",
+        timeout=900,
     )
     if resp.exit_code != 0:
         if verbose:
             print(f"⚠️  Archive failed (exit {resp.exit_code})")
+            if volume_ok:
+                print(
+                    f"   Results are on volume '{KAGGLE_DATA_VOLUME_NAME}' — "
+                    "recover with a volume-mounted sandbox if needed."
+                )
         return None
-
-    # Copy results to the persistent volume so they survive sandbox deletion
-    sandbox.process.exec(
-        f"mkdir -p {KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results && "
-        f"cp -a {shlex.quote(repo_dir)}/evaluation_results/* {KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results/ 2>/dev/null || true",
-        timeout=120,
-    )
 
     local_dir = Path(args.local_results_dir).expanduser()
     local_dir.mkdir(parents=True, exist_ok=True)
@@ -1112,6 +1234,11 @@ def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
     except Exception as e:
         if verbose:
             print(f"⚠️  Download failed: {e}")
+            if volume_ok:
+                print(
+                    f"   Results are on volume '{KAGGLE_DATA_VOLUME_NAME}' — "
+                    "laptop download can be retried later."
+                )
         return None
 
     if verbose:
@@ -1122,6 +1249,11 @@ def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
     except Exception as e:
         if verbose:
             print(f"⚠️  Extract failed: {e}")
+            if volume_ok:
+                print(
+                    f"   Results are on volume '{KAGGLE_DATA_VOLUME_NAME}' — "
+                    "laptop extract can be retried from the downloaded archive."
+                )
         return None
 
     if verbose:
@@ -1147,10 +1279,17 @@ def phase_auto_fetch(sandbox, state: dict, args) -> dict:
     fetch_count = 0
     while True:
         try:
+            before_sync = state.get("last_volume_sync")
             path = _do_fetch(sandbox, state, args, verbose=True)
             if path:
                 fetch_count += 1
                 print(f"   [auto-fetch #{fetch_count}] Saved to {path}")
+            elif state.get("last_volume_sync") != before_sync:
+                fetch_count += 1
+                print(
+                    f"   [auto-fetch #{fetch_count}] Synced to volume "
+                    f"'{KAGGLE_DATA_VOLUME_NAME}' (laptop download skipped)"
+                )
         except Exception as e:
             print(f"⚠️  Auto-fetch failed: {e}")
         print(f"   Next fetch in {interval // 60} min... (press Ctrl-C to stop)")
@@ -1166,17 +1305,19 @@ def phase_teardown(daytona: Daytona, sandbox, state: dict, args) -> dict:
     _stop_services(sandbox)
 
     # GPU sandboxes are ephemeral — stopping deletes the filesystem.
-    # Auto-fetch results before stopping if we haven't already.
-    if not state.get("last_fetch"):
+    # Sync results to the volume (and laptop if possible) before stopping.
+    if not _results_persisted(state, sandbox.id):
         print("⚠️  GPU sandboxes are ephemeral — stopping will DELETE the sandbox.")
-        print("📦 Auto-fetching results before stop...")
+        print("📦 Fetching/syncing results before stop...")
         try:
             state = phase_fetch(sandbox, state, args)
         except Exception as e:
-            print(f"⚠️  Auto-fetch failed: {e}")
-            if not getattr(args, "force", False):
-                print("🛑 Refusing to stop without fetching results. Pass --force to skip.", file=sys.stderr)
-                return state
+            print(f"⚠️  Fetch/sync failed: {e}")
+        if not _results_persisted(state, sandbox.id) and not getattr(args, "force", False):
+            print("🛑 Refusing to stop without persisting results. Pass --force to skip.", file=sys.stderr)
+            return state
+    elif not state.get("last_fetch") and state.get("last_volume_sync"):
+        print(f"ℹ️  Results synced to volume '{KAGGLE_DATA_VOLUME_NAME}' (laptop fetch not on record).")
 
     print(f"🛑 Stopping sandbox {sandbox.id} (sandbox will be deleted — GPU sandboxes are ephemeral)...")
     try:
@@ -1198,11 +1339,11 @@ def _maybe_delete(daytona: Daytona, sandbox, state: dict, args, warn_label: str)
               f"once you're sure `fetch` succeeded, or re-run `--phase {warn_label}` later.")
         return
 
-    fetched = state.get("last_fetch") and state.get("sandbox_id") == sandbox.id
+    fetched = _results_persisted(state, sandbox.id)
     if not fetched and not getattr(args, "force", False):
         print(
             f"🛑 Refusing to delete sandbox {sandbox.id}: no record of a successful "
-            f"`--phase fetch` for it in this state file. Results would be LOST.\n"
+            f"`--phase fetch` or volume sync for it in this state file. Results would be LOST.\n"
             f"   Run `--phase fetch` first, or pass --force to delete anyway."
         )
         return
@@ -1295,17 +1436,19 @@ def phase_kill(daytona: Daytona, state: dict, args) -> dict:
         return state
 
     # GPU sandboxes are ephemeral — stopping deletes the filesystem.
-    # Auto-fetch results before stopping if we haven't already.
-    if not state.get("last_fetch"):
+    # Sync results to the volume (and laptop if possible) before stopping.
+    if not _results_persisted(state, sandbox_id):
         print("⚠️  GPU sandboxes are ephemeral — stopping will DELETE the sandbox.")
-        print("📦 Auto-fetching results before stop...")
+        print("📦 Fetching/syncing results before stop...")
         try:
             state = phase_fetch(sandbox, state, args)
         except Exception as e:
-            print(f"⚠️  Auto-fetch failed: {e}")
-            if not getattr(args, "force", False):
-                print("🛑 Refusing to stop without fetching results. Pass --force to skip.", file=sys.stderr)
-                return state
+            print(f"⚠️  Fetch/sync failed: {e}")
+        if not _results_persisted(state, sandbox_id) and not getattr(args, "force", False):
+            print("🛑 Refusing to stop without persisting results. Pass --force to skip.", file=sys.stderr)
+            return state
+    elif not state.get("last_fetch") and state.get("last_volume_sync"):
+        print(f"ℹ️  Results synced to volume '{KAGGLE_DATA_VOLUME_NAME}' (laptop fetch not on record).")
 
     print(f"🛑 Stopping sandbox {sandbox_id} (state={sandbox.state})... "
           "(sandbox will be deleted — GPU sandboxes are ephemeral)")
@@ -1422,6 +1565,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--mem-reservation", default="1G",
                    help="(Deprecated, no-op) Kept for CLI compatibility.")
     p.add_argument("--allocation-timeout", type=int, default=3600)
+    p.add_argument("--first-upload-timeout", type=int, default=3600,
+                   help="During --phase run, abort if the first challenge never prints "
+                        "'✅ Upload complete' within this many seconds after evaluation "
+                        "starts (signals broken code execution / executor allocation). "
+                        "Default: 3600 (1 hour).")
 
     # Eval
     p.add_argument("--dataset", default="dspredict-sampled",

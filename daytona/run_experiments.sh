@@ -4,6 +4,7 @@
 # Usage:
 #   ./run_experiments.sh                    # full pipeline: create → bootstrap → launch → experiments → kill
 #   ./run_experiments.sh --skip-create      # skip create/bootstrap/launch (reuse existing sandbox)
+#   SEED=50 ./run_experiments.sh --no-kill  # run with a different seed, keep sandbox alive afterwards
 #
 # Prerequisites (export before running):
 #   export DAYTONA_API_KEY=...
@@ -19,9 +20,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 SKIP_CREATE=false
+NO_KILL=false
 for arg in "$@"; do
   case $arg in
     --skip-create) SKIP_CREATE=true ;;
+    --no-kill) NO_KILL=true ;;
   esac
 done
 
@@ -54,15 +57,16 @@ BACKEND="litellm"
 MAX_WORKERS=4
 LIMIT=100
 DAGS="--dags true"
-SEED=42  # change this for a new run with a different seed
+SEED="${SEED:-42}"
 echo "SEED: $SEED"
 run_experiment() {
   local prompt="$1"
   local label="$2"
+  local tag="${label}-seed${SEED}"
 
   echo ""
   echo "══════════════════════════════════════════════════════════════"
-  echo "EXPERIMENT: $label (prompt=$prompt)"
+  echo "EXPERIMENT: $tag (prompt=$prompt, seed=$SEED)"
   echo "══════════════════════════════════════════════════════════════"
 
   # Reset the executor pool to clear any stuck containers from the previous run.
@@ -79,12 +83,12 @@ run_experiment() {
     $DAGS \
     --seed "$SEED" \
     --prompt "$prompt" \
-    --tag "$label"
+    --tag "$tag"
 
   # Fetch results immediately after each run.
   .venv/bin/python orchestrate.py --phase fetch
 
-  echo "✅ Experiment '$label' complete. Results fetched."
+  echo "✅ Experiment '$tag' complete. Results fetched."
 }
 
 # Run each prompt variant.
@@ -97,11 +101,16 @@ run_experiment "expert-agentic"       "expert-agentic"
 # Stop the background auto-fetch first.
 kill $AUTO_FETCH_PID 2>/dev/null || true
 
-echo ""
-echo "══════════════════════════════════════════════════════════════"
-echo "PHASE: kill (stop billing, auto-fetch first)"
-echo "══════════════════════════════════════════════════════════════"
-.venv/bin/python orchestrate.py --phase kill
+if [ "$NO_KILL" = true ]; then
+  echo ""
+  echo "⏭️  Skipping kill (--no-kill). Sandbox left running for the next seed run."
+else
+  echo ""
+  echo "══════════════════════════════════════════════════════════════"
+  echo "PHASE: kill (stop billing, auto-fetch first)"
+  echo "══════════════════════════════════════════════════════════════"
+  .venv/bin/python orchestrate.py --phase kill
+fi
 
 echo ""
-echo "🎉 All experiments complete. Results are in daytona/results/."
+echo "🎉 All experiments complete (seed=$SEED). Results are in daytona/results/."

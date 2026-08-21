@@ -83,7 +83,7 @@ run_experiment() {
     $DAGS \
     --seed "$SEED" \
     --prompt "$prompt" \
-    --tag "$tag"
+    --tag "${tag}_${SEED}"
 
   # Fetch results immediately after each run.
   .venv/bin/python orchestrate.py --phase fetch

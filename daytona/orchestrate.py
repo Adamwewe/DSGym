@@ -1581,7 +1581,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", default="litellm",
                    choices=["litellm", "vllm", "sglang"],
                    help="Inference backend passed through to dsgym eval (default: litellm).")
-    p.add_argument("--limit", type=int, default=100, help="Number of samples to evaluate (adjustable)")
+    p.add_argument("--limit", type=int, default=1, help="Number of samples to evaluate (adjustable)")
     p.add_argument("--max-workers", type=int, default=None,
                    help="Defaults to --num-executors so workers == executor pool size")
     p.add_argument("--dags", type=lambda x: str(x).lower() not in ("false", "0", "no"),

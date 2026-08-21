@@ -4,7 +4,7 @@
 # Usage:
 #   ./run_experiments.sh                    # full pipeline: create → bootstrap → launch → experiments → kill
 #   ./run_experiments.sh --skip-create      # skip create/bootstrap/launch (reuse existing sandbox)
-#   SEED=50 ./run_experiments.sh --no-kill  # run with a different seed, keep sandbox alive afterwards
+#   MODEL=claude-sonnet-4-5 SEEDS="40 41 42" ./run_experiments.sh --no-kill  # custom model + seeds, keep sandbox alive
 #
 # Prerequisites (export before running):
 #   export DAYTONA_API_KEY=...
@@ -51,22 +51,38 @@ echo "   Auto-fetch PID: $AUTO_FETCH_PID"
 trap "kill $AUTO_FETCH_PID 2>/dev/null || true" EXIT
 
 # ─── Phase 2: Run experiments ──────────────────────────────────────────────
-DATASET="dspredict-hard"
-MODEL="gpt-4o-mini"
-BACKEND="litellm"
-MAX_WORKERS=4
-LIMIT=100
-DAGS="--dags true"
-SEED="${SEED:-42}"
-echo "SEED: $SEED"
+DATASET="${DATASET:-dspredict-hard}"
+MODEL="${MODEL:-gpt-4o-mini}"
+BACKEND="${BACKEND:-litellm}"
+MAX_WORKERS="${MAX_WORKERS:-4}"
+LIMIT="${LIMIT:-100}"
+# Seeds to cycle through; overridable from outside via SEEDS (space-separated).
+SEEDS="${SEEDS:-42 52 53}"
+echo "MODEL: $MODEL"
+echo "SEEDS: $SEEDS"
+
 run_experiment() {
   local prompt="$1"
   local label="$2"
-  local tag="${label}-seed${SEED}"
+  local dags="${3:-true}"
+  local seed="$4"
+  local tag="${label}-seed${seed}"
+
+  # When dags=false, run without a prompt variant and without DAG guidance:
+  # dsgym eval must be called with --dags false and no --prompt arg.
+  local dags_arg=""
+  local prompt_arg=""
+  if [ "$dags" = "true" ]; then
+    dags_arg="--dags true"
+    prompt_arg="--prompt $prompt"
+  else
+    dags_arg="--dags false"
+    prompt_arg=""
+  fi
 
   echo ""
   echo "══════════════════════════════════════════════════════════════"
-  echo "EXPERIMENT: $tag (prompt=$prompt, seed=$SEED)"
+  echo "EXPERIMENT: $tag (model=$MODEL, prompt=${prompt}, dags=$dags, seed=$seed)"
   echo "══════════════════════════════════════════════════════════════"
 
   # Reset the executor pool to clear any stuck containers from the previous run.
@@ -80,10 +96,10 @@ run_experiment() {
     --backend "$BACKEND" \
     --max-workers "$MAX_WORKERS" \
     --limit "$LIMIT" \
-    $DAGS \
-    --seed "$SEED" \
-    --prompt "$prompt" \
-    --tag "${tag}_${SEED}"
+    $dags_arg \
+    --seed "$seed" \
+    $prompt_arg \
+    --tag "${tag}_${seed}"
 
   # Fetch results immediately after each run.
   .venv/bin/python orchestrate.py --phase fetch
@@ -91,11 +107,24 @@ run_experiment() {
   echo "✅ Experiment '$tag' complete. Results fetched."
 }
 
-# Run each prompt variant.
-run_experiment "adaptive-revision"   "adaptive-revision"
-run_experiment "problem-decomposition" "problem-decomposition"
-run_experiment "data-quality-methods" "data-quality-methods"
-run_experiment "expert-agentic"       "expert-agentic"
+# Experiment specs: "prompt:label:dags". Run each prompt variant (dags=true)
+# plus a non-DAG baseline (dags=false), cycled across all seeds.
+EXPERIMENTS=(
+  "reasoning-only:nodags:false"
+  "reasoning-only:reasoning-only:true"
+  "adaptive-revision:adaptive-revision:true"
+  "adaptive-revision:adaptive-revision:true"
+  "problem-decomposition:problem-decomposition:true"
+  "data-quality-methods:data-quality-methods:true"
+  "expert-agentic:expert-agentic:true"
+)
+
+for seed in $SEEDS; do
+  for spec in "${EXPERIMENTS[@]}"; do
+    IFS=':' read -r prompt label dags <<< "$spec"
+    run_experiment "$prompt" "$label" "$dags" "$seed"
+  done
+done
 
 # ─── Phase 3: Cleanup ──────────────────────────────────────────────────────
 # Stop the background auto-fetch first.
@@ -113,4 +142,4 @@ else
 fi
 
 echo ""
-echo "🎉 All experiments complete (seed=$SEED). Results are in daytona/results/."
+echo "🎉 All experiments complete (seeds=$SEEDS, model=$MODEL). Results are in daytona/results/."

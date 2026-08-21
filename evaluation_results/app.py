@@ -37,6 +37,9 @@ COLORS = {
     "nodags": "#FF9800",
     "dags_adaptive-revision": "#4CAF50",
     "dags_vanilla-no-implementation": "#9C27B0",
+    "dags_problem-decomposition": "#E91E63",
+    "dags_data-quality-methods": "#FFC107",
+    "dags_expert-agentic": "#00BCD4",
 }
 # Human-readable labels for known model IDs (extended on the fly by discovery)
 MODEL_LABELS = {
@@ -77,7 +80,9 @@ def _model_color(model: str) -> str:
     return _COLOR_PALETTE[idx]
 
 # ── Auto-discovery: results files ─────────────────────────────────────────────
-_KNOWN_MODES     = ["dags_vanilla-no-implementation", "dags_adaptive-revision", "dags", "nodags"]
+_KNOWN_MODES     = ["dags_vanilla-no-implementation", "dags_adaptive-revision",
+                    "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
+                    "dags", "nodags"]
 _KNOWN_PROVIDERS = ["fireworks_ai_", "fireworks_Qwen_", "fireworks_", "openai_"]
 
 def _discover_results_files():
@@ -130,6 +135,12 @@ def _discover_results_files():
             model = f"{model} (adaptive)"
         elif mode == "dags_vanilla-no-implementation":
             model = f"{model} (vanilla)"
+        elif mode == "dags_problem-decomposition":
+            model = f"{model} (problem decomposition)"
+        elif mode == "dags_data-quality-methods":
+            model = f"{model} (data quality)"
+        elif mode == "dags_expert-agentic":
+            model = f"{model} (expert agentic)"
 
         key = (model, mode if mode else "nodags")
         if mode is not None:
@@ -165,6 +176,9 @@ def _discover_dag_model_configs():
         # Only collect DAG-related slugs
         if (slug.endswith("_dags_adaptive-revision")
                 or slug.endswith("_dags_vanilla-no-implementation")
+                or slug.endswith("_dags_problem-decomposition")
+                or slug.endswith("_dags_data-quality-methods")
+                or slug.endswith("_dags_expert-agentic")
                 or slug.endswith("_dags")):
             slug_set.add(slug)
 
@@ -182,6 +196,15 @@ def _discover_dag_model_configs():
         elif slug.endswith("_dags_vanilla-no-implementation"):
             base = _slug_to_name(slug[: -len("_dags_vanilla-no-implementation")])
             model_name = f"{base} (vanilla)"
+        elif slug.endswith("_dags_problem-decomposition"):
+            base = _slug_to_name(slug[: -len("_dags_problem-decomposition")])
+            model_name = f"{base} (problem decomposition)"
+        elif slug.endswith("_dags_data-quality-methods"):
+            base = _slug_to_name(slug[: -len("_dags_data-quality-methods")])
+            model_name = f"{base} (data quality)"
+        elif slug.endswith("_dags_expert-agentic"):
+            base = _slug_to_name(slug[: -len("_dags_expert-agentic")])
+            model_name = f"{base} (expert agentic)"
         else:
             base = _slug_to_name(slug[: -len("_dags")])
             model_name = base
@@ -219,7 +242,11 @@ def _discover_per_task_runs(existing_dp, existing_dp_hard, existing_bio):
         m = re.match(r'^.+?_\d+_(.+)$', fpath.stem)
         if not m: continue
         slug = m.group(1)
-        if slug.endswith("_dags_adaptive-revision") or slug.endswith("_dags"):
+        if (slug.endswith("_dags_adaptive-revision")
+                or slug.endswith("_dags_problem-decomposition")
+                or slug.endswith("_dags_data-quality-methods")
+                or slug.endswith("_dags_expert-agentic")
+                or slug.endswith("_dags")):
             slug_files.setdefault(slug, []).append(fpath)
 
     dp_extra, dp_hard_extra, bio_extra = {}, {}, {}
@@ -236,6 +263,12 @@ def _discover_per_task_runs(existing_dp, existing_dp_hard, existing_bio):
             mode = "dags_adaptive-revision"
         elif slug.endswith("_dags_vanilla-no-implementation"):
             mode = "dags_vanilla-no-implementation"
+        elif slug.endswith("_dags_problem-decomposition"):
+            mode = "dags_problem-decomposition"
+        elif slug.endswith("_dags_data-quality-methods"):
+            mode = "dags_data-quality-methods"
+        elif slug.endswith("_dags_expert-agentic"):
+            mode = "dags_expert-agentic"
         else:
             mode = "dags"
         key  = (model_name, mode)
@@ -616,7 +649,9 @@ def load_drift_records():
 
         mode = None
         slug_base = slug
-        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation", "dags", "nodags"]:
+        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation",
+                          "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
+                          "dags", "nodags"]:
             if slug.endswith(f"_{candidate}"):
                 mode = candidate
                 slug_base = slug[: -len(f"_{candidate}")]
@@ -627,6 +662,9 @@ def load_drift_records():
         suffix = {
             "dags_adaptive-revision":      " (adaptive)",
             "dags_vanilla-no-implementation": " (vanilla)",
+            "dags_problem-decomposition":   " (problem decomposition)",
+            "dags_data-quality-methods":    " (data quality)",
+            "dags_expert-agentic":          " (expert agentic)",
             "nodags": " (nodags)",
             "dags":   "",
         }[mode]
@@ -771,7 +809,9 @@ def load_failure_analysis_records() -> list:
 
         mode      = None
         slug_base = slug
-        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation", "dags", "nodags"]:
+        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation",
+                          "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
+                          "dags", "nodags"]:
             if slug.endswith(f"_{candidate}"):
                 mode      = candidate
                 slug_base = slug[: -len(f"_{candidate}")]
@@ -783,6 +823,9 @@ def load_failure_analysis_records() -> list:
         suffix     = {
             "dags_adaptive-revision":         " (adaptive)",
             "dags_vanilla-no-implementation": " (vanilla)",
+            "dags_problem-decomposition":     " (problem decomposition)",
+            "dags_data-quality-methods":      " (data quality)",
+            "dags_expert-agentic":            " (expert agentic)",
             "nodags": " (nodags)",
             "dags":   "",
         }[mode]
@@ -827,7 +870,8 @@ def extract_traj_dags(all_data):
     # Source 1: bundled results files
     for (model, mode), data in all_data.items():
         #TODO: claude hardcoded this like this, needs to be updated every time or I need to rewrite it
-        if mode not in ("dags", "dags_adaptive-revision", "dags_vanilla-no-implementation"): continue
+        if mode not in ("dags", "dags_adaptive-revision", "dags_vanilla-no-implementation",
+                        "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic"): continue
         for row in data:
             dags = _extract_embedded_dags(row.get("trajectory", []))
             ch   = row.get("challenge") or ""
@@ -1337,7 +1381,8 @@ def page_dspredict(dp_data, dp_hard_data):
                     ax.text(bar.get_x()+bar.get_width()/2, h+0.5, f"{h:.1f}",
                             ha="center", va="bottom", fontsize=10)
         handles = [mpatches.Patch(facecolor=COLORS.get(md, "#9C27B0"), label=md)
-                   for md in ["dags", "nodags", "dags_adaptive-revision", "dags_vanilla-no-implementation"]]
+                   for md in ["dags", "nodags", "dags_adaptive-revision", "dags_vanilla-no-implementation",
+                              "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic"]]
         fig.legend(handles=handles, loc="upper right")
         plt.tight_layout(); fig_to_st(fig)
 

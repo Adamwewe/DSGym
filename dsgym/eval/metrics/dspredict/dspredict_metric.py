@@ -396,7 +396,10 @@ def get_leaderboard_rank_medal(leaderboard_scores, my_score):
     higher_is_better = leaderboard_scores[0] > leaderboard_scores[-1]
     combined = leaderboard_scores + [our_score]
     combined.sort(reverse=higher_is_better)
-    rank = combined.index(our_score) + 1
+    # Ties take the WORST rank in the tie (Kaggle competition ranking).
+    # list.index() returns the FIRST match, which awarded the BEST rank in a tie
+    # and inflated 41 of 103 checked-in submissions. Search from the end instead.
+    rank = len(combined) - combined[::-1].index(our_score)
 
     total = len(combined)
     def pct_ceil(p):

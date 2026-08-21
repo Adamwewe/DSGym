@@ -162,8 +162,8 @@ class Evaluator:
         """
         Save a single completed task result as a per-task checkpoint file.
 
-        Filename format: ``{challenge_or_id}_{index}_{model_slug}_{dags|nodags}.json``
-        e.g. ``mens-machine-learning-competition-2018_31_claude_sonnet_4_5_dags.json``
+        Filename format: ``{challenge_or_id}_{index}_{model_slug}_{dags|nodags}[_prompt]_seed{N}.json``
+        e.g. ``mens-machine-learning-competition-2018_31_claude_sonnet_4_5_dags_problem-decomposition_seed42.json``
 
         The file contains the full ``EvaluationResult.to_dict()`` payload so that
         ``load_dspredict_from_intermediate`` in analysis.ipynb can recover all scores
@@ -190,6 +190,7 @@ class Evaluator:
             prompt_variant = config.extra_config.get("prompt_variant", "default")
             if dags and prompt_variant and prompt_variant != "default":
                 dag_suffix += f"_{prompt_variant}"
+            dag_suffix += f"_seed{config.seed}"
 
             # Build filename
             parts = [str(challenge_name)]

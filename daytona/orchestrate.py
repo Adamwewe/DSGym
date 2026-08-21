@@ -134,6 +134,12 @@ SANDBOX_LABELS = {"project": "dsgym", "purpose": "dspredict-gpu-smoketest"}
 # so we don't re-download 50+ competitions on every new sandbox.
 KAGGLE_DATA_VOLUME_NAME = "dsgym-kaggle-data"
 KAGGLE_DATA_VOLUME_MOUNT = "/mnt/kaggle-data"
+# Maps --dataset values to (task JSON under repo root, data/data subdir used by dsgym eval).
+_DSPREDICT_BOOTSTRAP_CONFIG: dict[str, tuple[str, str]] = {
+    "dspredict-hard": ("data/task/dspredict/hard.json", "dspredict-hard"),
+    "dspredict-easy": ("data/task/dspredict/easy.json", "dspredict-easy"),
+    "dspredict-sampled": ("data/task/dspredict/dspredict_sampled.json", "dspredict-sampled"),
+}
 # Direct-process runtime layout
 SANDBOX_DATA_DIR = "/data"
 SANDBOX_SUBMISSION_DIR = "/submission"
@@ -562,6 +568,122 @@ def phase_preflight(sandbox, state: dict, args) -> dict:
 # Phase: bootstrap  (clone + install deps)
 # --------------------------------------------------------------------------
 
+def _validate_dspredict_bootstrap_data(sandbox, repo_dir: str, dataset: str) -> None:
+    """Ensure every required competition has real files under data/data/{split}/.
+
+    Fails bootstrap (sys.exit) if any competition dir is missing, is a
+    .download_failed stub, or has no data files. Matches the paths used by
+    dsgym.datasets.loaders.dspredict (e.g. data/data/dspredict-hard/{name}/).
+    """
+    if dataset not in _DSPREDICT_BOOTSTRAP_CONFIG:
+        return
+
+    task_json_rel, data_subdir = _DSPREDICT_BOOTSTRAP_CONFIG[dataset]
+    validation_script = f"""\
+import json
+import os
+import sys
+
+repo_dir = {repo_dir!r}
+dataset = {dataset!r}
+task_json_rel = {task_json_rel!r}
+data_subdir = {data_subdir!r}
+data_root = os.path.join(repo_dir, "data", "data", data_subdir)
+
+SKIP_FILES = {{".gitkeep", ".download_failed"}}
+
+
+def competition_dir_name(entry: dict) -> str:
+    path = entry.get("docker_challenge_path") or entry.get("challenge_name") or ""
+    return path.rstrip("/").split("/")[-1]
+
+
+def has_real_data(comp_dir: str) -> bool:
+    if not os.path.isdir(comp_dir):
+        return False
+    for dirpath, _, filenames in os.walk(comp_dir):
+        depth = dirpath[len(comp_dir) :].count(os.sep)
+        if depth >= 2:
+            continue
+        for name in filenames:
+            if name not in SKIP_FILES:
+                return True
+    return False
+
+
+def load_competition_names() -> list[str]:
+    task_json = os.path.join(repo_dir, task_json_rel)
+    if os.path.isfile(task_json):
+        with open(task_json, encoding="utf-8") as f:
+            items = json.load(f)
+        return [competition_dir_name(d) for d in items]
+    if dataset == "dspredict-sampled" and os.path.isdir(data_root):
+        return sorted(
+            name
+            for name in os.listdir(data_root)
+            if os.path.isdir(os.path.join(data_root, name))
+        )
+    print(f"❌ Task list not found: {{task_json}}", file=sys.stderr)
+    print(
+        "   For dspredict-sampled, create data/task/dspredict/dspredict_sampled.json "
+        "or ensure data/data/dspredict-sampled/ contains competition dirs.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+if not os.path.isdir(data_root):
+    print(f"❌ Competition data root missing: {{data_root}}", file=sys.stderr)
+    sys.exit(1)
+
+missing: list[str] = []
+stub_only: list[str] = []
+empty: list[str] = []
+
+for name in load_competition_names():
+    comp_dir = os.path.join(data_root, name)
+    if not os.path.isdir(comp_dir):
+        missing.append(name)
+    elif os.path.isfile(os.path.join(comp_dir, ".download_failed")) and not has_real_data(comp_dir):
+        stub_only.append(name)
+    elif not has_real_data(comp_dir):
+        empty.append(name)
+
+problems = missing + stub_only + empty
+if not problems:
+    total = len(load_competition_names())
+    print(f"✅ Competition data validated: {{total}} competitions under {{data_root}}")
+    sys.exit(0)
+
+print(f"❌ Bootstrap data validation failed for {{dataset}} (expected under {{data_root}}):", file=sys.stderr)
+if missing:
+    print(f"   Missing dirs ({{len(missing)}}): {{', '.join(missing[:10])}}{{'...' if len(missing) > 10 else ''}}", file=sys.stderr)
+if stub_only:
+    print(f"   Stub only (.download_failed, {{len(stub_only)}}): {{', '.join(stub_only[:10])}}{{'...' if len(stub_only) > 10 else ''}}", file=sys.stderr)
+if empty:
+    print(f"   Empty dirs ({{len(empty)}}): {{', '.join(empty[:10])}}{{'...' if len(empty) > 10 else ''}}", file=sys.stderr)
+print(
+    "   Remove bad dirs on the volume (dsgym-kaggle-data) or re-run bootstrap "
+    "after a fresh Kaggle download.",
+    file=sys.stderr,
+)
+sys.exit(1)
+"""
+    sandbox.fs.upload_file(validation_script.encode("utf-8"), "/tmp/dsgym_validate_data.py")
+    print(f"🔎 Validating competition data for {dataset} under {repo_dir}/data/data/...")
+    resp = sandbox.process.exec(
+        f"python3 /tmp/dsgym_validate_data.py",
+        cwd=repo_dir,
+        timeout=120,
+    )
+    if resp.result:
+        print(resp.result.rstrip())
+    if resp.exit_code != 0:
+        if resp.result is None and resp.exit_code != 0:
+            print(f"❌ Data validation script failed (exit {resp.exit_code})", file=sys.stderr)
+        sys.exit(1)
+
+
 def phase_bootstrap(sandbox, state: dict, args) -> dict:
     repo_dir = get_repo_dir(sandbox, state, args)
     print(f"📥 Cloning {args.repo_url} (branch: {args.branch}) into {repo_dir}...")
@@ -668,28 +790,7 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
         split_path = f"{data_base}/{split}"
         run(sandbox, f"rm -rf {split_path} && ln -s {data_base}/dspredict {split_path}", check=False)
 
-    # Create placeholder dirs for competitions that failed to download
-    placeholder_script = (
-        "#!/bin/bash\n"
-        f"cd {shlex.quote(repo_dir)}\n"
-        f"python3 -c \"\n"
-        f"import json, os\n"
-        f"data = json.load(open('data/task/dspredict/hard.json'))\n"
-        f"base = 'data/data/dspredict'\n"
-        f"created = 0\n"
-        f"for d in data:\n"
-        f"    name = d.get('docker_challenge_path','').split('/')[-1]\n"
-        f"    path = os.path.join(base, name)\n"
-        f"    if not os.path.exists(path):\n"
-        f"        os.makedirs(path, exist_ok=True)\n"
-        f"        with open(os.path.join(path, '.download_failed'), 'w') as f:\n"
-        f"            f.write('')\n"
-        f"        created += 1\n"
-        f"print(f'Created {{created}} placeholder dirs for missing competitions')\n"
-        f"\"\n"
-    )
-    sandbox.fs.upload_file(placeholder_script.encode("utf-8"), "/tmp/dsgym_placeholders.sh")
-    run(sandbox, "bash /tmp/dsgym_placeholders.sh", cwd=repo_dir, check=False)
+    _validate_dspredict_bootstrap_data(sandbox, repo_dir, args.dataset)
 
     state["bootstrap_ok"] = True
     save_state(args.state_file, state)
@@ -1549,7 +1650,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Repo
     p.add_argument("--repo-url", default="https://github.com/Adamwewe/DSGym.git")
-    p.add_argument("--branch", default="feature/daytona-added", #default="feature/scaffolding-with-cuda",
+    p.add_argument("--branch", default="feature/daytona-fetch-fix", #default="feature/scaffolding-with-cuda",
                    help="Git branch to clone into the sandbox (default: feature/scaffolding-with-cuda or feature/daytona-added).")
     p.add_argument("--github-user", default=os.environ.get("GITHUB_USER"))
     p.add_argument("--github-token", default=os.environ.get("GITHUB_TOKEN"),

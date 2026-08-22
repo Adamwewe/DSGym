@@ -21,9 +21,14 @@ Phases (run with --phase, or `all` to run everything except teardown):
   run        Write KAGGLE_TOKEN to ~/.kaggle/access_token + push OPENAI_API_KEY,
              start `dsgym eval` in a background Daytona session, and stream its
              stdout/stderr live to this terminal until it finishes.
-   fetch      Sync evaluation_results/ to the persistent volume, then tar and
-              download the archive to --local-results-dir. Volume sync runs
-              independently so results survive even when tar/download fails.
+  fetch      Sync evaluation_results/ to the persistent volume, then tar and
+             download the archive to --local-results-dir. Volume sync runs
+             independently so results survive even when tar/download fails.
+             Use --phase-fetch to control this: 'both' (default) syncs to
+             volume AND downloads to laptop; 'local' skips the volume sync
+             entirely (useful when volume sync keeps timing out) and only
+             downloads to the laptop; 'volume' only syncs to the persistent
+             volume and skips the laptop download.
    auto-fetch Run fetch in a loop every --auto-fetch-interval seconds (default
               1200 = 20 min). Volume sync is attempted every cycle; laptop
               download may fail without losing results on the volume. Also runs
@@ -1196,11 +1201,23 @@ def _sync_results_to_volume(
 def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
     """Fetch results from the sandbox. Returns the local archive path, or None.
 
-    Always attempts to sync evaluation_results/ to the persistent volume first.
-    Laptop download (tar + extract) is best-effort and may fail independently.
+    Respects --phase-fetch:
+      - 'both'   (default): sync to volume AND download to laptop.
+      - 'local':  skip volume sync, only tar+download to the laptop.
+      - 'volume': only sync to the persistent volume, skip laptop download.
     """
+    fetch_mode = getattr(args, "fetch", "both")
     repo_dir = get_repo_dir(sandbox, state, args)
-    volume_ok = _sync_results_to_volume(sandbox, repo_dir, state, args, verbose=verbose)
+    volume_ok = False
+    if fetch_mode in ("volume", "both"):
+        volume_ok = _sync_results_to_volume(sandbox, repo_dir, state, args, verbose=verbose)
+    elif verbose:
+        print(f"⏭️  Skipping volume sync (--phase-fetch={fetch_mode}).")
+
+    if fetch_mode == "volume":
+        if verbose:
+            print(f"⏭️  Skipping laptop download (--phase-fetch=volume).")
+        return None
 
     remote_archive = f"/tmp/dsgym_results_{int(time.time())}.tar.gz"
     if verbose:
@@ -1613,6 +1630,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Results
     p.add_argument("--local-results-dir", default=str(SCRIPT_DIR / "results"))
+    p.add_argument("fetch", default="both",
+                   choices=["local", "volume", "both"],
+                   help="Where to send results during fetch/auto-fetch. "
+                        "'both' (default): sync to persistent volume AND download to laptop. "
+                        "'local': skip volume sync entirely (useful when volume sync keeps timing out) "
+                        "and only tar+download to --local-results-dir. "
+                        "'volume': only sync to the persistent volume, skip laptop download.")
     p.add_argument("--auto-fetch-interval", type=int, default=1200,
                    help="Auto-fetch interval in seconds (default: 1200 = 20 min). "
                         "Used by the background auto-fetch thread in --phase run, and by --phase auto-fetch.")

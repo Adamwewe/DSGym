@@ -35,10 +35,15 @@ async def health():
         return {"status": "restarting", "reason": "kernel_restarting"}
     try:
         loop = asyncio.get_event_loop()
-        outputs = await loop.run_in_executor(None, executor.execute, "1+1")
+        outputs = await asyncio.wait_for(
+            loop.run_in_executor(None, executor.execute, "1+1"),
+            timeout=10,
+        )
         if outputs and any(o.get("type") == "result" and o.get("data", {}).get("text/plain") == "2" for o in outputs):
             return {"status": "ok"}
         return {"status": "unhealthy", "reason": f"kernel_returned_bad_output: {outputs}"}
+    except asyncio.TimeoutError:
+        return {"status": "unhealthy", "reason": "health_check_timed_out"}
     except Exception as e:
         return {"status": "unhealthy", "reason": str(e)}
 

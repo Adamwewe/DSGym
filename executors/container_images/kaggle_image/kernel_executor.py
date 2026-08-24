@@ -16,10 +16,16 @@ class KernelExecutor:
     
     def start(self):
         """
-        Start the kernel. Uses locking to prevent conflicts with other threads
+        Start the kernel. Uses locking to prevent conflicts with other threads.
+
+        Forces TCP transport for ZeroMQ sockets (instead of IPC) to avoid
+        corruption when running inside an isolated mount namespace
+        (unshare --mount), where IPC sockets can break.
         """
         with self._lock:
             self.km = KernelManager()
+            # Force TCP transport — IPC sockets break under unshare --mount
+            self.km.transport = "tcp"
             self.km.start_kernel()
             self.kc = self.km.blocking_client()
             

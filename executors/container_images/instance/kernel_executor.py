@@ -15,11 +15,10 @@ class KernelExecutor:
         self.timeout = timeout
     
     def start(self):
-        """
-        Start the kernel. Uses locking to prevent conflicts with other threads
-        """
+        """Start the kernel. Forces TCP transport to avoid IPC corruption under unshare --mount."""
         with self._lock:
             self.km = KernelManager()
+            self.km.transport = "tcp"
             self.km.start_kernel()
             self.kc = self.km.blocking_client()
             

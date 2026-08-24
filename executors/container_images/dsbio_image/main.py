@@ -28,20 +28,18 @@ async def execute_code(request: CodeRequest):
 
 @app.get("/health")
 async def health():
-    """Deep health check — verifies the kernel is actually alive, not just the HTTP server."""
+    """Deep health check — uses wait_for_ready (socket-level) instead of executing code."""
     if executor.km is None or executor.kc is None:
         return {"status": "unhealthy", "reason": "kernel_not_started"}
     if executor.is_restarting:
         return {"status": "restarting", "reason": "kernel_restarting"}
     try:
         loop = asyncio.get_event_loop()
-        outputs = await asyncio.wait_for(
-            loop.run_in_executor(None, executor.execute, "1+1"),
+        await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: executor.kc.wait_for_ready(timeout=5)),
             timeout=10,
         )
-        if outputs and any(o.get("type") == "result" and o.get("data", {}).get("text/plain") == "2" for o in outputs):
-            return {"status": "ok"}
-        return {"status": "unhealthy", "reason": f"kernel_returned_bad_output: {outputs}"}
+        return {"status": "ok"}
     except asyncio.TimeoutError:
         return {"status": "unhealthy", "reason": "health_check_timed_out"}
     except Exception as e:

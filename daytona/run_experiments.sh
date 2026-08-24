@@ -9,6 +9,7 @@
 # Prerequisites (export before running):
 #   export DAYTONA_API_KEY=...
 #   export OPENAI_API_KEY=...
+#   export ANTHROPIC_API_KEY=...
 #   export KAGGLE_TOKEN=KGAT_...
 #
 # The script runs multiple prompt variants sequentially, resetting the
@@ -36,7 +37,7 @@ if [ "$SKIP_CREATE" = false ]; then
   .venv/bin/python orchestrate.py --phase create --cpu 16 --memory 64 --gpu-count 2 --gpu-type RTX_4090
   .venv/bin/python orchestrate.py --phase preflight
   .venv/bin/python orchestrate.py --phase bootstrap --dataset dspredict-hard
-  .venv/bin/python orchestrate.py --phase launch --num-executors 4 --execution-timeout 7200
+  .venv/bin/python orchestrate.py --phase launch --num-executors 4 --execution-timeout 3600
 fi
 
 # ─── Background auto-fetch (safety net) ────────────────────────────────────
@@ -52,6 +53,7 @@ trap "kill $AUTO_FETCH_PID 2>/dev/null || true" EXIT
 
 # ─── Phase 2: Run experiments ──────────────────────────────────────────────
 DATASET="${DATASET:-dspredict-hard}"
+# MODEL="${MODEL:-claude-sonnet-4-5}"
 MODEL="${MODEL:-gpt-4o-mini}"
 BACKEND="${BACKEND:-litellm}"
 MAX_WORKERS="${MAX_WORKERS:-4}"
@@ -70,11 +72,14 @@ run_experiment() {
 
   # When dags=false, run without a prompt variant and without DAG guidance:
   # dsgym eval must be called with --dags false and no --prompt arg.
+  # When dags=true with prompt empty, dsgym eval uses its built-in default DAG prompt.
   local dags_arg=""
   local prompt_arg=""
   if [ "$dags" = "true" ]; then
     dags_arg="--dags true"
-    prompt_arg="--prompt $prompt"
+    if [ -n "$prompt" ]; then
+      prompt_arg="--prompt $prompt"
+    fi
   else
     dags_arg="--dags false"
     prompt_arg=""
@@ -82,10 +87,11 @@ run_experiment() {
 
   echo ""
   echo "══════════════════════════════════════════════════════════════"
-  echo "EXPERIMENT: $tag (model=$MODEL, prompt=${prompt}, dags=$dags, seed=$seed)"
+  echo "EXPERIMENT: $tag (model=$MODEL, prompt=${prompt:-default}, dags=$dags, seed=$seed)"
   echo "══════════════════════════════════════════════════════════════"
 
   # Reset the executor pool to clear any stuck containers from the previous run.
+  .venv/bin/python orchestrate.py --phase stop-run
   .venv/bin/python orchestrate.py --phase exec --command "curl -s -X POST http://localhost:5000/reset"
 
   # Run the eval (this blocks until it finishes).
@@ -97,26 +103,27 @@ run_experiment() {
     --max-workers "$MAX_WORKERS" \
     --limit "$LIMIT" \
     $dags_arg \
-    --seed "$seed" \
     $prompt_arg \
-    --tag "${tag}_${seed}"
+    --seed "$seed" \
+    --tag "_${seed}"
 
   # Fetch results immediately after each run.
-  .venv/bin/python orchestrate.py --phase fetch
+  .venv/bin/python orchestrate.py --phase fetch --phase-fetch local
 
   echo "✅ Experiment '$tag' complete. Results fetched."
 }
 
 # Experiment specs: "prompt:label:dags". Run each prompt variant (dags=true)
 # plus a non-DAG baseline (dags=false), cycled across all seeds.
+# Empty prompt with dags=true uses dsgym eval's built-in default DAG prompt.
 EXPERIMENTS=(
-  "reasoning-only:nodags:false"
-  "reasoning-only:reasoning-only:true"
-  "adaptive-revision:adaptive-revision:true"
-  "adaptive-revision:adaptive-revision:true"
-  "problem-decomposition:problem-decomposition:true"
-  "data-quality-methods:data-quality-methods:true"
-  "expert-agentic:expert-agentic:true"
+  # "reasoning-only:nodags:false"
+  # "reasoning-only:reasoning-only:true"
+  ":dags-default:true"
+  # "adaptive-revision:adaptive-revision:true"
+  # "problem-decomposition:problem-decomposition:true"
+  # "data-quality-methods:data-quality-methods:true"
+  # "expert-agentic:expert-agentic:true"
 )
 
 for seed in $SEEDS; do

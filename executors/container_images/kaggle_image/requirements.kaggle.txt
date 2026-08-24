@@ -12,12 +12,6 @@ catboost
 scikit-learn
 scipy
 
-#below libs need to be removed if running cpu/apple-silicon jobs
-py7zr
-torch
-opencv-python
-pillow
-
 # Feature engineering
 category_encoders
 optuna
@@ -29,7 +23,7 @@ fastapi==0.104.1
 uvicorn==0.24.0
 httpx
 jupyter-client==8.6.0
-ipykernel==6.26.0 
+ipykernel==6.26.0
 requests
 sympy
 tavily-python

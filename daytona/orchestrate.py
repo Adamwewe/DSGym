@@ -480,31 +480,6 @@ def _install_executor_deps(sandbox, repo_dir: str) -> None:
         f"{shlex.quote(repo_dir)}/executors/container_images/kaggle_image/requirements.kaggle.txt"
     ), cwd=repo_dir, timeout=600)
 
-    print("🔧 Upgrading torch to CUDA 12.6 wheels in the executor venv...")
-    run(sandbox, (
-        f"$HOME/.local/bin/uv pip install --python {shlex.quote(venv_python)} --force-reinstall --index-url "
-        "https://download.pytorch.org/whl/cu126 torch"
-    ), cwd=repo_dir, timeout=600)
-
-    print("🔎 Verifying installed PyTorch can see the GPU...")
-    gpu_check = sandbox.process.exec(
-        f"{shlex.quote(venv_python)} -c \"import torch; print('torch version:', torch.__version__); "
-        f"print('CUDA available:', torch.cuda.is_available()); "
-        f"print('CUDA devices:', torch.cuda.device_count())\"",
-        cwd=repo_dir,
-    )
-    print(gpu_check.result)
-    if gpu_check.exit_code != 0 or "CUDA available: False" in gpu_check.result:
-        print(
-            "❌ PyTorch installed but CUDA is not available.\n"
-            "   Common causes:\n"
-            "   - torch was installed from the CPU-only wheel instead of the CUDA wheel\n"
-            "   - the CUDA runtime libraries are not compatible with the driver in the sandbox\n"
-            "   Try: uv pip list | grep torch; and check nvidia-smi shows a driver version.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
 
 def _wait_for_manager(sandbox, timeout: int = 120):
     print("⏳ Waiting for manager /health to report ready...")

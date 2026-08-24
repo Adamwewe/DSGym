@@ -452,34 +452,23 @@ class AllocatedCodeToolGroup:
             self.allocate_container()
             print(f"🔧 Late-allocated container: {self.allocated_container}")
         
-        # Retry on 400 (container not allocated — e.g. after a /reset) or
-        # 503 (container unavailable — e.g. executor died mid-run) by re-allocating.
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = self.client.post(
-                    f"{self.manager_url}/session/{self.allocated_container}/execute",
-                    json={"code": code}
-                )
-                response.raise_for_status()
-                result = response.json()
-                raw_output = result.get("outputs", [])
-                # Clean and format the Jupyter output
-                output = clean_jupyter_output(raw_output)
-                return output
-            except Exception as e:
-                status = getattr(getattr(e, 'response', None), 'status_code', None)
-                if status in (400, 503) and attempt < max_retries - 1:
-                    print(f"🔄 Container {self.allocated_container} failed (status={status}) — re-allocating (attempt {attempt+1}/{max_retries})...")
-                    self.allocated_container = None
-                    self.allocate_container()
-                    print(f"🔧 Re-allocated container: {self.allocated_container}")
-                    continue
-                # Convert HTTPStatusError to a more Ray-friendly exception
-                error_msg = f"Failed to execute code: {str(e)}"
-                if hasattr(e, 'response') and e.response is not None:
-                    error_msg += f" (Status: {e.response.status_code})"
-                raise RuntimeError(error_msg)
+        try:
+            response = self.client.post(
+                f"{self.manager_url}/session/{self.allocated_container}/execute",
+                json={"code": code}
+            )
+            response.raise_for_status()
+            result = response.json()
+            raw_output = result.get("outputs", [])
+            # Clean and format the Jupyter output
+            output = clean_jupyter_output(raw_output)
+            return output
+        except Exception as e:
+            # Convert HTTPStatusError to a more Ray-friendly exception
+            error_msg = f"Failed to execute code: {str(e)}"
+            if hasattr(e, 'response') and e.response is not None:
+                error_msg += f" (Status: {e.response.status_code})"
+            raise RuntimeError(error_msg)
     
     def get_tool_names(self):
         return ["python"]

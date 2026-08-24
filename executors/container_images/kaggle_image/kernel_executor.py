@@ -18,14 +18,36 @@ class KernelExecutor:
         """
         Start the kernel. Uses locking to prevent conflicts with other threads.
 
-        Forces TCP transport for ZeroMQ sockets (instead of IPC) to avoid
-        corruption when running inside an isolated mount namespace
-        (unshare --mount), where IPC sockets can break.
+        Forces TCP transport for ZeroMQ sockets and starts the kernel process
+        with its own mount namespace (via unshare --mount) so that bind mounts
+        for /data and /submission only affect the kernel process, not the
+        executor (uvicorn + KernelManager + ZeroMQ). This prevents ZeroMQ
+        corruption that occurs when the executor itself runs inside an
+        isolated mount namespace.
         """
         with self._lock:
             self.km = KernelManager()
-            # Force TCP transport — IPC sockets break under unshare --mount
+            # Force TCP transport — IPC sockets are fragile under namespace isolation
             self.km.transport = "tcp"
+            # Start the kernel in its own mount namespace. The kernel_cmd
+            # wraps ipykernel in unshare --mount + bind mounts so only the
+            # kernel process sees the isolated /data and /submission.
+            # The executor process (this one) stays in the parent namespace,
+            # keeping ZeroMQ sockets healthy.
+            import sys, shlex
+            data_dir = os.environ.get("SANDBOX_DATA_DIR", "/data")
+            submission_dir = os.environ.get("SANDBOX_SUBMISSION_DIR", "/submission")
+            bind_data_src = os.environ.get("BIND_DATA_SRC", "")
+            bind_submission_src = os.environ.get("BIND_SUBMISSION_SRC", "")
+            kernel_cmd = ["unshare", "--mount", "bash", "-c"]
+            inner_cmd = ""
+            if bind_data_src:
+                inner_cmd += f"mount --bind {shlex.quote(bind_data_src)} {shlex.quote(data_dir)} 2>/dev/null || true; "
+            if bind_submission_src:
+                inner_cmd += f"mount --bind {shlex.quote(bind_submission_src)} {shlex.quote(submission_dir)} 2>/dev/null || true; "
+            inner_cmd += f"exec {sys.executable} -m ipykernel_launcher -f $1"
+            kernel_cmd.append(inner_cmd)
+            self.km.kernel_cmd = kernel_cmd + ["{connection_file}"]
             self.km.start_kernel()
             self.kc = self.km.blocking_client()
             

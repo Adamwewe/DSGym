@@ -876,8 +876,11 @@ def phase_launch(sandbox, state: dict, args) -> dict:
         executor_dir = f"{repo_dir}/executors/container_images/kaggle_image"
         wrapper_path = f"/tmp/dsgym_executor_{i:03d}.sh"
 
-        # Each executor runs in its own mount namespace so that /data and
-        # /submission are isolated per worker (emulating the Docker volume mounts).
+        # The executor process runs normally (no unshare --mount) to avoid
+        # ZeroMQ corruption. The kernel process itself calls unshare --mount
+        # internally (see kernel_executor.py start()) to get isolated /data
+        # and /submission bind mounts. The bind mount sources are passed via
+        # env vars.
         wrapper_script = (
             "#!/bin/bash\n"
             f"export PORT={port}\n"
@@ -889,11 +892,12 @@ def phase_launch(sandbox, state: dict, args) -> dict:
             f"export PYTHONUNBUFFERED=1\n"
             f"export PYTHONDONTWRITEBYTECODE=1\n"
             f'export PYTHONWARNINGS="ignore::FutureWarning"\n'
-            f'exec unshare --mount bash -c "'
-            f'mount --bind {shlex.quote(repo_dir)}/data/data {SANDBOX_DATA_DIR}; '
-            f'mount --bind {shlex.quote(submission_dir)} {SANDBOX_SUBMISSION_DIR}; '
-            f'cd {shlex.quote(executor_dir)}; '
-            f'exec {shlex.quote(executor_venv_python)} main.py"\n'
+            f"export SANDBOX_DATA_DIR={SANDBOX_DATA_DIR}\n"
+            f"export SANDBOX_SUBMISSION_DIR={SANDBOX_SUBMISSION_DIR}\n"
+            f"export BIND_DATA_SRC={shlex.quote(repo_dir)}/data/data\n"
+            f"export BIND_SUBMISSION_SRC={shlex.quote(submission_dir)}\n"
+            f"cd {shlex.quote(executor_dir)}\n"
+            f"exec {shlex.quote(executor_venv_python)} main.py\n"
         )
         sandbox.fs.upload_file(wrapper_script.encode("utf-8"), wrapper_path)
         run(sandbox, f"chmod +x {wrapper_path}")

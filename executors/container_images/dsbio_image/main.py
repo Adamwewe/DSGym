@@ -28,22 +28,7 @@ async def execute_code(request: CodeRequest):
 
 @app.get("/health")
 async def health():
-    """Deep health check — uses wait_for_ready (socket-level) instead of executing code."""
-    if executor.km is None or executor.kc is None:
-        return {"status": "unhealthy", "reason": "kernel_not_started"}
-    if executor.is_restarting:
-        return {"status": "restarting", "reason": "kernel_restarting"}
-    try:
-        loop = asyncio.get_event_loop()
-        await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: executor.kc.wait_for_ready(timeout=5)),
-            timeout=10,
-        )
-        return {"status": "ok"}
-    except asyncio.TimeoutError:
-        return {"status": "unhealthy", "reason": "health_check_timed_out"}
-    except Exception as e:
-        return {"status": "unhealthy", "reason": str(e)}
+    return {"status": "ok"}
 
 @app.get("/ready")
 async def ready():

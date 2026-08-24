@@ -24,7 +24,6 @@ uvicorn==0.24.0
 httpx
 jupyter-client==8.6.0
 ipykernel==6.26.0
-pyzmq<26
 requests
 sympy
 tavily-python

@@ -16,18 +16,10 @@ class KernelExecutor:
     
     def start(self):
         """
-        Start the kernel. Uses locking to prevent conflicts with other threads.
-
-        Forces TCP transport for ZeroMQ sockets to reduce the chance of
-        IPC-related corruption. The executor process itself runs inside
-        unshare --mount (set by the wrapper script) for per-executor
-        /data and /submission bind mounts.
+        Start the kernel. Uses locking to prevent conflicts with other threads
         """
         with self._lock:
             self.km = KernelManager()
-            # Force TCP transport — IPC sockets are more fragile under
-            # mount namespace isolation.
-            self.km.transport = "tcp"
             self.km.start_kernel()
             self.kc = self.km.blocking_client()
             
@@ -172,30 +164,12 @@ class KernelExecutor:
         if not self.km:
             return [{"type": "error", "name": "KernelError", "value": "Kernel not available", "traceback": []}]
         
-        # Auto-restart on dead kernel (stale socket, crashed process, etc.)
-        # Retry up to 2 times: initial attempt + 1 restart retry.
-        for attempt in range(2):
-            try:
-                self.kc.wait_for_ready(timeout=10)
-                break
-            except Exception as e:
-                if attempt == 0:
-                    print(f"Kernel not ready: {e} — auto-restarting kernel and retrying...")
-                    self.restart()
-                    # Wait for restart to complete (reuse the deadline pattern)
-                    restart_deadline = time.time() + self.timeout + 30
-                    while self.is_restarting:
-                        if time.time() > restart_deadline:
-                            return [{"type": "error", "name": "KernelError",
-                                     "value": "Kernel restart timed out; container may be unresponsive",
-                                     "traceback": []}]
-                        time.sleep(0.1)
-                    if not self.kc or not self.km:
-                        return [{"type": "error", "name": "KernelError", "value": "Kernel not available after restart", "traceback": []}]
-                    continue
-                print(f"Kernel not ready after restart: {e}")
-                return [{"type": "error", "name": "KernelError", "value": "Kernel not ready", "traceback": []}]
-       
+        try:
+            self.kc.wait_for_ready(timeout=10)
+        except Exception as e:
+            print(f"Kernel not ready: {e}")
+            return [{"type": "error", "name": "KernelError", "value": "Kernel not ready", "traceback": []}]
+        
         with self._lock:
             msg_id = self.kc.execute(code, silent=False)
             outputs = []

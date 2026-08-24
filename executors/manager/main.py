@@ -55,7 +55,6 @@ config = ContainerConfig()
 # Type-based container queues
 available_containers_by_type = {}
 allocated_containers = set()
-dead_containers = set()  # containers whose HTTP server died — skip allocation until externally restarted
 
 # Initialize queues per container type
 for container_id_str in config.config.keys():
@@ -328,7 +327,6 @@ async def get_status():
         "available_containers": total_available,
         "available_by_type": available_by_type,
         "allocated_containers": len(allocated_containers),
-        "dead_containers": list(dead_containers),
         "total_containers": len(config.config),
         "allocated_container_ids": list(allocated_containers)
     }
@@ -345,13 +343,12 @@ async def reset_all():
     eventually hit the ALLOCATION_TIMEOUT and return 503 — they will never
     receive a container from the new queues.
     """
-    global available_containers_by_type, allocated_containers, dead_containers
+    global available_containers_by_type, allocated_containers
 
     # Replace queues so stale asyncio waiters are abandoned on old queue objects
     new_queues: dict[str, asyncio.Queue] = {t: asyncio.Queue() for t in available_containers_by_type}
     available_containers_by_type = new_queues
     allocated_containers = set()
-    dead_containers = set()
 
     restarted, failed = [], []
     for container_id in list(config.config.keys()):
@@ -375,92 +372,6 @@ async def reset_all():
 async def shutdown_event():
     await http_client.aclose()
     await ready_check_client.aclose()
-
-async def _health_watchdog():
-    """Background task: periodically health-check all allocated containers.
-
-    Catches containers that died mid-run (kernel crash, OOM, uvicorn died
-    but process stuck in kernel threads). Uses a per-container failure
-    counter so transient slowness doesn't trigger recovery, but persistent
-    death (3 consecutive failures) does.
-
-    Recovery strategy depends on the failure mode:
-    - HTTP alive, kernel unhealthy: POST /restart (kernel restart)
-    - HTTP dead: can't restart via API. Remove from allocated set and
-      mark as dead so the external supervisor (orchestrator) can detect
-      and restart the process. Also return to pool so allocation doesn't
-      hang — the client's 503 retry will re-allocate to a healthy one.
-    """
-    interval = float(os.getenv("HEALTH_CHECK_INTERVAL", "120"))
-    failure_counts: dict[int, int] = {}
-    max_failures = 3
-
-    while True:
-        await asyncio.sleep(interval)
-        for container_id in list(allocated_containers):
-            try:
-                resp = await ready_check_client.get(
-                    f"{config.get_url(container_id)}/health",
-                )
-                data = resp.json()
-                if data.get("status") == "ok":
-                    failure_counts.pop(container_id, None)
-                    continue
-
-                # Unhealthy but HTTP server alive — try kernel restart
-                failure_counts[container_id] = failure_counts.get(container_id, 0) + 1
-                reason = data.get("reason", "unknown")
-                fails = failure_counts[container_id]
-                print(f"🔄 Watchdog: container {container_id} unhealthy ({reason}), "
-                      f"failure {fails}/{max_failures}")
-
-                if fails >= max_failures:
-                    # Persistent kernel death — restart and reset counter
-                    print(f"🔄 Watchdog: container {container_id} persistently unhealthy, "
-                          f"forcing restart and returning to pool")
-                    try:
-                        await ready_check_client.post(
-                            f"{config.get_url(container_id)}/restart"
-                        )
-                    except Exception as restart_err:
-                        print(f"⚠️  Watchdog: restart failed for {container_id}: {restart_err}")
-                    allocated_containers.discard(container_id)
-                    container_type = config.get_type(container_id)
-                    available_containers_by_type[container_type].put_nowait(container_id)
-                    failure_counts.pop(container_id, None)
-                else:
-                    # First/second failure — try a soft restart
-                    try:
-                        await ready_check_client.post(
-                            f"{config.get_url(container_id)}/restart"
-                        )
-                    except Exception:
-                        pass
-
-            except Exception:
-                # HTTP server itself is dead — can't restart via API.
-                # Remove from allocated and return to pool. The container
-                # is dead, but the client's 503 retry will re-allocate to
-                # a healthy one. The orchestrator's _stop_services + relaunch
-                # is needed to fully recover a dead-HTTP container.
-                failure_counts[container_id] = failure_counts.get(container_id, 0) + 1
-                fails = failure_counts[container_id]
-                print(f"💀 Watchdog: container {container_id} HTTP unresponsive, "
-                      f"failure {fails}/{max_failures}")
-
-                if fails >= max_failures:
-                    print(f"💀 Watchdog: container {container_id} confirmed dead (HTTP gone), "
-                          f"marking as dead — needs external process restart")
-                    allocated_containers.discard(container_id)
-                    dead_containers.add(container_id)
-                    failure_counts.pop(container_id, None)
-                    # Do NOT return to available queue — a dead container
-                    # would be re-allocated and immediately fail again.
-                    # The orchestrator must relaunch the executor process.
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(_health_watchdog())
 
 if __name__ == "__main__":
     import uvicorn

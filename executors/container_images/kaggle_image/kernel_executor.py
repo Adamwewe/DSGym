@@ -39,15 +39,15 @@ class KernelExecutor:
             submission_dir = os.environ.get("SANDBOX_SUBMISSION_DIR", "/submission")
             bind_data_src = os.environ.get("BIND_DATA_SRC", "")
             bind_submission_src = os.environ.get("BIND_SUBMISSION_SRC", "")
-            kernel_cmd = ["unshare", "--mount", "bash", "-c"]
+            # Build the inner shell command. $0 is the connection_file
+            # (bash -c 'cmd' $0), so we reference $0 not $1.
             inner_cmd = ""
             if bind_data_src:
-                inner_cmd += f"mount --bind {shlex.quote(bind_data_src)} {shlex.quote(data_dir)} 2>/dev/null || true; "
+                inner_cmd += f"mount --bind {shlex.quote(bind_data_src)} {shlex.quote(data_dir)} || echo 'WARN: bind mount data failed'; "
             if bind_submission_src:
-                inner_cmd += f"mount --bind {shlex.quote(bind_submission_src)} {shlex.quote(submission_dir)} 2>/dev/null || true; "
-            inner_cmd += f"exec {sys.executable} -m ipykernel_launcher -f $1"
-            kernel_cmd.append(inner_cmd)
-            self.km.kernel_cmd = kernel_cmd + ["{connection_file}"]
+                inner_cmd += f"mount --bind {shlex.quote(bind_submission_src)} {shlex.quote(submission_dir)} || echo 'WARN: bind mount submission failed'; "
+            inner_cmd += f"exec {sys.executable} -m ipykernel_launcher -f $0"
+            self.km.kernel_cmd = ["unshare", "--mount", "bash", "-c", inner_cmd, "{connection_file}"]
             self.km.start_kernel()
             self.kc = self.km.blocking_client()
             

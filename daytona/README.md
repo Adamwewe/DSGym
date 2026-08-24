@@ -507,3 +507,144 @@ exec` to inspect logs:
 .venv/bin/python orchestrate.py --phase exec --command "cat /tmp/dsgym_executor_000.log"
 .venv/bin/python orchestrate.py --phase exec --command "curl -s http://localhost:5000/health"
 ```
+
+If the launch itself is stuck on a `nohup ... &` command (the Daytona SDK's
+`process.exec` can hang on backgrounded commands), you can start the manager
+and executors manually using a session instead:
+
+```python
+# Start manager via session (avoids exec hang on nohup)
+from daytona import Daytona, SessionExecuteRequest
+d = Daytona()
+sb = d.get_current()
+sb.process.create_session("dsgym-setup")
+sb.process.execute_session_command("dsgym-setup",
+    SessionExecuteRequest(command="nohup python3 main.py > /tmp/log 2>&1 &", run_async=True))
+```
+
+For executors, write a launcher script that uses `setsid` to fully detach:
+
+```bash
+# /tmp/start_executors.sh
+setsid bash /tmp/dsgym_executor_000.sh > /tmp/dsgym_executor_000.log 2>&1 < /dev/null &
+setsid bash /tmp/dsgym_executor_001.sh > /tmp/dsgym_executor_001.log 2>&1 < /dev/null &
+exit 0
+```
+
+Then run it via `--phase exec --command "/tmp/start_executors.sh"`.
+
+## Debugging gotchas
+
+### 503 Service Unavailable from executor
+
+A 503 from `http://localhost:5000/session/N/execute` means the manager
+could not reach executor N. Common causes:
+
+1. **Executor process died but manager still thinks it's allocated.**
+   The manager's `/health` endpoint only returns `{"status":"ok"}` — it
+   does not deep-check the kernel. An executor can have a dead kernel
+   while the HTTP server is still alive, or the entire process can die
+   silently (uvicorn stops but the `unshare --mount` parent stays).
+
+   **Check:** `--phase exec --command "curl -s http://localhost:8432/health"`
+   for each executor port. If DEAD, the process is gone.
+
+   **Fix:** Relaunch the executors. The `_stop_services` function in
+   `orchestrate.py` now matches `venv-executor/bin/python3 main.py` (not
+   just `kaggle_image/main.py`) because `exec` in the wrapper replaces
+   the command line — the original `pkill -f kaggle_image/main.py`
+   pattern misses the actual process.
+
+2. **`stop-run` killed the executors along with the eval.** The
+   `pkill -9` in `stop-run` is broad (`uv.*dsgym`). If you run `stop-run`
+   and then immediately `run` without relaunching executors, you'll get
+   503s because the executors are dead.
+
+   **Fix:** Always relaunch executors after `stop-run`:
+   ```bash
+   .venv/bin/python orchestrate.py --phase stop-run
+   # Restart executors (see "Launch seems to hang" above if launch hangs)
+   # Then run experiments
+   ```
+
+3. **Executor died from ZeroMQ crash under `unshare --mount`.** Symptoms:
+   `Assertion failed: false (src/object.cpp:142)`, `ValueError: Invalid
+   Signature`, `Bad address (src/fq.cpp:56)` in the executor log. These
+   are ZeroMQ internal crashes that kill the kernel and sometimes the
+   executor process.
+
+   **Mitigation:** Removing heavy DL libraries (torch, opencv, pillow)
+   from `requirements.kaggle.txt` dramatically reduces the frequency —
+   most crashes were triggered by heavy ML training exhausting the
+   kernel's resources. The original DSGym benchmark was designed for
+   classical ML (scikit-learn, xgboost, lightgbm) without deep learning.
+
+### Executors die silently mid-run
+
+If executors die without any error in their logs (last line is a
+successful `200 OK`), the cause is usually:
+
+- **uvicorn event loop stuck** — the HTTP server stops accepting
+  connections but the process stays alive. `lsof -i :8432` shows
+  nothing on the port, but `ps aux` shows the process still running.
+  This is a known issue with uvicorn under mount namespace isolation.
+
+- **OOM kill** — check `dmesg | grep -i oom`. The sandbox has 64GB+ RAM
+  but a single agent training a large model can exhaust it.
+
+- **Kernel timeout + restart cycle** — if code execution exceeds
+  `--execution-timeout`, the kernel restarts. If the restart fails
+  (ZeroMQ corrupted), the executor becomes a zombie.
+
+**Fix:** Relaunch executors. For long unattended runs, consider reducing
+`--execution-timeout` to 3600s (1 hour) to prevent individual code cells
+from blocking an executor for too long.
+
+### `$HOME` expands to laptop path in `--phase exec`
+
+When using `--phase exec --command "..."`, shell variables like `$HOME`
+are expanded by your **local** shell before reaching the sandbox. Always
+escape them:
+
+```bash
+# WRONG — $HOME becomes /Users/yourlaptop
+.venv/bin/python orchestrate.py --phase exec --command "$HOME/.local/bin/uv ..."
+
+# CORRECT — $HOME is evaluated inside the sandbox
+.venv/bin/python orchestrate.py --phase exec --command "\$HOME/.local/bin/uv ..."
+```
+
+### Container leaks (2/4 busy, 2 available but nothing running)
+
+If the pool shows containers as allocated but no executor processes are
+running, the manager's `allocated_containers` set is stale. This was
+previously caused by a re-allocate-on-503 logic in `env.py` that
+allocated new containers without deallocating old ones. That code has
+been reverted.
+
+**Fix:** Reset the manager pool:
+```bash
+.venv/bin/python orchestrate.py --phase exec --command "curl -s -X POST http://localhost:5000/reset"
+```
+
+### Volume sync timeouts during fetch
+
+If `--phase fetch` hangs on the volume sync step, use `--phase-fetch local`
+to skip the volume and download results directly to your laptop:
+
+```bash
+.venv/bin/python orchestrate.py --phase fetch --phase-fetch local
+```
+
+### API key not passed to sandbox (claude-sonnet-4-5 401 errors)
+
+If the sandbox was created before `ANTHROPIC_API_KEY` support was added,
+it won't have the key as a sandbox-level env var. The orchestrator now
+injects API keys into the eval session at `--phase run` time via
+`export ANTHROPIC_API_KEY=...` before starting the eval, so it works
+regardless of when the sandbox was created.
+
+Make sure the key is exported locally:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```

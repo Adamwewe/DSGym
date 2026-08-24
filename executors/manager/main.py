@@ -373,6 +373,47 @@ async def shutdown_event():
     await http_client.aclose()
     await ready_check_client.aclose()
 
+async def _health_watchdog():
+    """Background task: periodically health-check all allocated containers.
+
+    If an allocated container fails the (deep) health check, restart it
+    and return it to the available queue. This catches containers that
+    died mid-run (kernel crash, OOM, stuck threads) — the existing
+    _recover_stuck_containers only fires on allocation timeout, which
+    may never happen if other containers are available.
+    """
+    interval = float(os.getenv("HEALTH_CHECK_INTERVAL", "120"))
+    while True:
+        await asyncio.sleep(interval)
+        for container_id in list(allocated_containers):
+            try:
+                resp = await ready_check_client.get(
+                    f"{config.get_url(container_id)}/health"
+                )
+                data = resp.json()
+                if data.get("status") == "ok":
+                    continue
+                # Unhealthy but HTTP server alive — try restart
+                reason = data.get("reason", "unknown")
+                print(f"🔄 Watchdog: container {container_id} unhealthy ({reason}), restarting...")
+                try:
+                    await ready_check_client.post(
+                        f"{config.get_url(container_id)}/restart"
+                    )
+                except Exception as restart_err:
+                    print(f"⚠️  Watchdog: could not restart container {container_id}: {restart_err}")
+            except Exception:
+                # HTTP server itself is dead — can't restart via API.
+                # Return to pool so next allocation attempt triggers recovery.
+                print(f"🔄 Watchdog: container {container_id} unresponsive (HTTP dead), returning to pool")
+                allocated_containers.discard(container_id)
+                container_type = config.get_type(container_id)
+                available_containers_by_type[container_type].put_nowait(container_id)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_health_watchdog())
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 5000))

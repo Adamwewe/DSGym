@@ -452,8 +452,10 @@ class AllocatedCodeToolGroup:
             self.allocate_container()
             print(f"🔧 Late-allocated container: {self.allocated_container}")
         
-        # Retry on 400 (container not allocated — e.g. after a /reset) by re-allocating.
-        for attempt in range(2):
+        # Retry on 400 (container not allocated — e.g. after a /reset) or
+        # 503 (container unavailable — e.g. executor died mid-run) by re-allocating.
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
                 response = self.client.post(
                     f"{self.manager_url}/session/{self.allocated_container}/execute",
@@ -467,8 +469,8 @@ class AllocatedCodeToolGroup:
                 return output
             except Exception as e:
                 status = getattr(getattr(e, 'response', None), 'status_code', None)
-                if status == 400 and attempt == 0:
-                    print(f"🔄 Container {self.allocated_container} no longer allocated (likely reset) — re-allocating...")
+                if status in (400, 503) and attempt < max_retries - 1:
+                    print(f"🔄 Container {self.allocated_container} failed (status={status}) — re-allocating (attempt {attempt+1}/{max_retries})...")
                     self.allocated_container = None
                     self.allocate_container()
                     print(f"🔧 Re-allocated container: {self.allocated_container}")

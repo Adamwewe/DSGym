@@ -84,6 +84,8 @@ Credentials (never committed, never baked into images):
   DAYTONA_API_KEY   Required. Auth for the Daytona SDK itself.
   OPENAI_API_KEY    Required. Passed into the sandbox as a secret env var
                     for the gpt-4o agent under evaluation.
+  ANTHROPIC_API_KEY Optional. Passed into the sandbox as a secret env var
+                    so Claude models (e.g. claude-sonnet-4-5) work via litellm.
   KAGGLE_TOKEN      Required for DSPredict. Modern Kaggle access token
                     (starts with KGAT_...). Written to ~/.kaggle/access_token
                     inside the sandbox; never written to disk here.
@@ -328,6 +330,12 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
               "The sandbox needs it at creation time so `dsgym eval` can read it later.", file=sys.stderr)
         sys.exit(1)
 
+    anthropic_key = args.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        print("🔐 ANTHROPIC_API_KEY found — will be passed into the sandbox for Claude models.")
+    else:
+        print("ℹ️  ANTHROPIC_API_KEY not set — Claude models won't be available unless set separately.")
+
     print(f"🚀 Creating Daytona GPU sandbox (cpu={args.cpu}, memory={args.memory}GB, "
           f"disk={args.disk}GB, gpu={args.gpu_count}, gpu_type={gpu_types or 'any available'})...")
 
@@ -370,7 +378,10 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
             gpu=args.gpu_count,
             gpu_type=gpu_types,
         ),
-        env_vars={"OPENAI_API_KEY": openai_key},
+        env_vars={
+            "OPENAI_API_KEY": openai_key,
+            **({"ANTHROPIC_API_KEY": anthropic_key} if anthropic_key else {}),
+        },
         auto_delete_interval=0,  # GPU sandboxes must be ephemeral (Daytona requirement)
         auto_stop_interval=999999,  # ~694 days — effectively "never auto-stop"
         labels=SANDBOX_LABELS,
@@ -520,19 +531,39 @@ def _stop_services(sandbox) -> None:
     """Kill any manager/executor processes started by this orchestrator."""
     print("🧹 Stopping manager + executor processes...")
     sandbox.process.exec(
+        # Kill any lingering dsgym eval process first (in case stop-run
+        # was not run or didn't fully succeed before a relaunch).
+        "pkill -9 -f 'dsgym eval' || true; "
+        "pkill -9 -f 'uv run dsgym' || true; "
+        "sleep 1; "
         # Kill by the wrapper env var (set on the nohup wrapper process)
-        "pkill -f 'DSGYM_EXECUTOR_WORKER' || true; "
-        # Kill by the script names
-        "pkill -f 'dsgym_executor_' || true; "
-        "pkill -f 'executors/manager/main.py' || true; "
-        "pkill -f 'kaggle_image/main.py' || true; "
+        "pkill -9 -f 'DSGYM_EXECUTOR_WORKER' || true; "
+        # Kill by the script names — match both the wrapper path and the
+        # actual python process (which is just 'python3 main.py' after exec)
+        "pkill -9 -f 'dsgym_executor_' || true; "
+        "pkill -9 -f 'executors/manager/main.py' || true; "
+        "pkill -9 -f 'kaggle_image/main.py' || true; "
+        "pkill -9 -f 'venv-executor/bin/python3 main.py' || true; "
+        "pkill -9 -f 'venv-manager/bin/python3 main.py' || true; "
+        # Kill orphaned joblib/kernel worker processes from previous runs
+        "pkill -9 -f 'venv-executor.*ipykernel_launcher' || true; "
+        "pkill -9 -f 'venv-executor.*joblib' || true; "
+        "pkill -9 -f 'venv-executor.*loky' || true; "
         # Kill anything listening on our ports (handles orphaned processes)
         "for port in 5000 8432 8433 8434 8435 8436 8437 8438 8439; do "
         "  pid=$(lsof -ti :$port 2>/dev/null || true); "
         "  [ -n \"$pid\" ] && kill -9 $pid 2>/dev/null || true; "
         "done; "
         "rm -f /tmp/dsgym_executor_*.pid /tmp/dsgym_manager.pid; "
-        "sleep 1"
+        # Wait for ports to actually be released by the OS (TIME_WAIT etc.)
+        "for i in $(seq 1 30); do "
+        "  busy=0; "
+        "  for port in 5000 8432 8433 8434 8435 8436 8437 8438 8439; do "
+        "    lsof -ti :$port >/dev/null 2>&1 && busy=1; "
+        "  done; "
+        "  [ $busy -eq 0 ] && break; "
+        "  sleep 1; "
+        "done"
     )
 
 
@@ -813,6 +844,9 @@ def phase_launch(sandbox, state: dict, args) -> dict:
     # Clean up any stale processes from previous launches.
     _stop_services(sandbox)
 
+    # Clear stale log files so the preview below shows only this launch's output.
+    run(sandbox, "rm -f /tmp/dsgym_executor_*.log /tmp/dsgym_manager.log", check=False)
+
     # Ensure the data and submission directories exist.
     run(sandbox, f"mkdir -p {repo_dir}/data/data {repo_dir}/submissions")
     run(sandbox, f"mkdir -p {SANDBOX_DATA_DIR} {SANDBOX_SUBMISSION_DIR}")
@@ -960,6 +994,33 @@ def phase_run(sandbox, state: dict, args) -> dict:
     eval_session_id = f"dsgym-eval-{int(time.time())}"
     print(f"▶️  Starting eval in background session '{eval_session_id}':\n    {eval_cmd}")
     sandbox.process.create_session(eval_session_id)
+
+    # ── Inject API keys into the session environment ────────────────────────
+    # OPENAI_API_KEY is set at sandbox-level at create time, but ANTHROPIC_API_KEY
+    # may be missing if the sandbox was created before the key was added to
+    # phase_create. Sessions maintain state between commands, so we export keys
+    # here before running the eval — this works regardless of sandbox age.
+    anthropic_key = args.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        print("🔐 Injecting ANTHROPIC_API_KEY into eval session...")
+        sandbox.process.execute_session_command(
+            eval_session_id,
+            SessionExecuteRequest(
+                command=f"export ANTHROPIC_API_KEY={shlex.quote(anthropic_key)}",
+                run_async=False,
+            ),
+        )
+    openai_key = args.openai_api_key or os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        # Ensure it's present even if the sandbox was created without it.
+        sandbox.process.execute_session_command(
+            eval_session_id,
+            SessionExecuteRequest(
+                command=f"export OPENAI_API_KEY={shlex.quote(openai_key)}",
+                run_async=False,
+            ),
+        )
+
     cmd_resp = sandbox.process.execute_session_command(
         eval_session_id,
         SessionExecuteRequest(command=eval_cmd, run_async=True),
@@ -1021,12 +1082,66 @@ def phase_stop_run(sandbox, state: dict, args) -> dict:
 
     This is useful when an eval is burning tokens on a broken setup. It does
     NOT stop the manager/executor services or the sandbox itself.
+
+    Primary mechanism: delete the dsgym-eval-* session the eval is running in
+    (the SDK's delete_session terminates the session's processes server-side,
+    which is far more reliable than pkill from a separate exec context).
+    Fallback: pkill -9 for any orphaned processes that survive session deletion.
     """
-    print("🛑 Killing any running dsgym eval process in the sandbox...")
-    run(sandbox, "pkill -f 'dsgym eval' || true", check=False)
-    # Also kill any uv-run wrapper that may be running dsgym eval.
-    run(sandbox, "pkill -f 'uv run dsgym eval' || true", check=False)
-    print("✅ Sent kill signal. The eval may take a few seconds to stop.")
+    print("🛑 Stopping any running dsgym eval process in the sandbox...")
+
+    # ── Primary: delete dsgym-eval-* sessions ───────────────────────────────
+    killed_sessions = []
+    try:
+        sessions = sandbox.process.list_sessions()
+        for s in sessions:
+            sid = s.session_id
+            if not sid.startswith("dsgym-eval-"):
+                continue
+            session_info = sandbox.process.get_session(sid)
+            running_cmds = [
+                cmd for cmd in session_info.commands
+                if cmd.exit_code is None and "dsgym eval" in cmd.command
+            ]
+            if running_cmds:
+                print(f"   Deleting session '{sid}' ({len(running_cmds)} running eval command(s))...")
+                try:
+                    sandbox.process.delete_session(sid)
+                    killed_sessions.append(sid)
+                except Exception as e:
+                    print(f"   ⚠️  Failed to delete session '{sid}': {e}")
+            else:
+                # Session exists but no running eval command — clean it up too.
+                print(f"   Deleting idle session '{sid}'...")
+                try:
+                    sandbox.process.delete_session(sid)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"⚠️  Could not list/delete sessions via SDK: {e}")
+
+    if killed_sessions:
+        print(f"✅ Deleted {len(killed_sessions)} eval session(s): {', '.join(killed_sessions)}")
+
+    # ── Fallback: pkill any orphaned processes ──────────────────────────────
+    # After session deletion, wait briefly then sweep for survivors.
+    time.sleep(2)
+    run(sandbox, (
+        "pkill -9 -f 'dsgym eval' || true; "
+        "pkill -9 -f 'dsgym.*eval' || true; "
+        "pkill -9 -f 'uv.*dsgym' || true"
+    ), check=False)
+
+    # Verify nothing survived.
+    time.sleep(1)
+    check = sandbox.process.exec("pgrep -af 'dsgym.*eval' || true", timeout=10)
+    remaining = (check.result or "").strip()
+    if remaining:
+        print(f"⚠️  Some eval processes are still alive after session deletion + SIGKILL:")
+        print(f"   {remaining}")
+        print("   They may be in uninterruptible sleep (D state) — try --phase stop-run again in a moment.")
+    else:
+        print("✅ All dsgym eval processes killed.")
     return state
 
 
@@ -1183,9 +1298,19 @@ def _stream_session_logs(
     eval_started_at: float | None = None
     first_upload_seen = False
     upload_marker = "Upload complete"
+    consecutive_errors = 0
 
     while True:
-        logs = sandbox.process.get_session_command_logs(session_id, command_id)
+        try:
+            logs = sandbox.process.get_session_command_logs(session_id, command_id)
+            consecutive_errors = 0
+        except Exception as e:
+            consecutive_errors += 1
+            if consecutive_errors > 10:
+                print(f"\n❌ Lost connection to eval session after 10 retries: {e}", file=sys.stderr)
+                break
+            time.sleep(3)
+            continue
         output = logs.output or ""
         if len(output) > printed:
             new_chunk = output[printed:]
@@ -1220,7 +1345,16 @@ def _stream_session_logs(
             sandbox.process.exec("pkill -f 'uv run dsgym eval' || true", check=False)
             sys.exit(1)
 
-        cmd = sandbox.process.get_session_command(session_id, command_id)
+        try:
+            cmd = sandbox.process.get_session_command(session_id, command_id)
+            consecutive_errors = 0
+        except Exception as e:
+            consecutive_errors += 1
+            if consecutive_errors > 10:
+                print(f"\n❌ Lost connection to eval session after 10 retries: {e}", file=sys.stderr)
+                break
+            time.sleep(3)
+            continue
         if cmd.exit_code is not None:
             # Drain any final output emitted between the last two polls.
             logs = sandbox.process.get_session_command_logs(session_id, command_id)
@@ -1706,10 +1840,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     default=True, metavar="BOOL",
                     help="Enable iterative DAG-guided reasoning (DSPredict). Accepts true/false. "
                          "Mirrors dsgym eval's own --dags flag.")
-    p.add_argument("--prompt", default="adaptive-revision", metavar="VARIANT",
+    p.add_argument("--prompt", default=None, metavar="VARIANT",
                    help="Optional DAG system prompt variant (e.g. adaptive-revision, reasoning-only). "
-                        "Only passed to dsgym eval when --dags is true. If your dsgym version does not "
-                        "support --prompt, omit this flag.")
+                        "Only passed to dsgym eval when --dags is true and this is set. "
+                        "Default: None — dsgym eval uses its built-in default DAG prompt.")
     p.add_argument("--dag-model", default=None,
                    help="Model used for DAG generation (passed through to dsgym eval --dag-model).")
     p.add_argument("--sample-n", type=int, default=None, metavar="N",
@@ -1728,10 +1862,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Optional tag to label this run (e.g. 'no-cuda', 'baseline'), included in "
                         "dsgym eval's JSON/CSV output for cross-run filtering.")
     p.add_argument("--openai-api-key", default=None, help="Defaults to $OPENAI_API_KEY")
-
+    p.add_argument("--anthropic-api-key", default=None, help="Defaults to $ANTHROPIC_API_KEY")
+ 
     # Results
     p.add_argument("--local-results-dir", default=str(SCRIPT_DIR / "results"))
-    p.add_argument("fetch", default="both",
+    p.add_argument("--fetch", default="both",
                    choices=["local", "volume", "both"],
                    help="Where to send results during fetch/auto-fetch. "
                         "'both' (default): sync to persistent volume AND download to laptop. "

@@ -18,36 +18,16 @@ class KernelExecutor:
         """
         Start the kernel. Uses locking to prevent conflicts with other threads.
 
-        Forces TCP transport for ZeroMQ sockets and starts the kernel process
-        with its own mount namespace (via unshare --mount) so that bind mounts
-        for /data and /submission only affect the kernel process, not the
-        executor (uvicorn + KernelManager + ZeroMQ). This prevents ZeroMQ
-        corruption that occurs when the executor itself runs inside an
-        isolated mount namespace.
+        Forces TCP transport for ZeroMQ sockets to reduce the chance of
+        IPC-related corruption. The executor process itself runs inside
+        unshare --mount (set by the wrapper script) for per-executor
+        /data and /submission bind mounts.
         """
         with self._lock:
             self.km = KernelManager()
-            # Force TCP transport — IPC sockets are fragile under namespace isolation
+            # Force TCP transport — IPC sockets are more fragile under
+            # mount namespace isolation.
             self.km.transport = "tcp"
-            # Start the kernel in its own mount namespace. The kernel_cmd
-            # wraps ipykernel in unshare --mount + bind mounts so only the
-            # kernel process sees the isolated /data and /submission.
-            # The executor process (this one) stays in the parent namespace,
-            # keeping ZeroMQ sockets healthy.
-            import sys, shlex
-            data_dir = os.environ.get("SANDBOX_DATA_DIR", "/data")
-            submission_dir = os.environ.get("SANDBOX_SUBMISSION_DIR", "/submission")
-            bind_data_src = os.environ.get("BIND_DATA_SRC", "")
-            bind_submission_src = os.environ.get("BIND_SUBMISSION_SRC", "")
-            # Build the inner shell command. $0 is the connection_file
-            # (bash -c 'cmd' $0), so we reference $0 not $1.
-            inner_cmd = ""
-            if bind_data_src:
-                inner_cmd += f"mount --bind {shlex.quote(bind_data_src)} {shlex.quote(data_dir)} || echo 'WARN: bind mount data failed'; "
-            if bind_submission_src:
-                inner_cmd += f"mount --bind {shlex.quote(bind_submission_src)} {shlex.quote(submission_dir)} || echo 'WARN: bind mount submission failed'; "
-            inner_cmd += f"exec {sys.executable} -m ipykernel_launcher -f $0"
-            self.km.kernel_cmd = ["unshare", "--mount", "bash", "-c", inner_cmd, "{connection_file}"]
             self.km.start_kernel()
             self.kc = self.km.blocking_client()
             

@@ -86,6 +86,8 @@ Credentials (never committed, never baked into images):
                     for the gpt-4o agent under evaluation.
   ANTHROPIC_API_KEY Optional. Passed into the sandbox as a secret env var
                     so Claude models (e.g. claude-sonnet-4-5) work via litellm.
+  FIREWORKS_AI_API_KEY Optional. Passed into the sandbox as a secret env var
+                    so Fireworks models work via litellm.
   KAGGLE_TOKEN      Required for DSPredict. Modern Kaggle access token
                     (starts with KGAT_...). Written to ~/.kaggle/access_token
                     inside the sandbox; never written to disk here.
@@ -336,6 +338,12 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
     else:
         print("ℹ️  ANTHROPIC_API_KEY not set — Claude models won't be available unless set separately.")
 
+    fireworks_key = args.fireworks_ai_api_key or os.environ.get("FIREWORKS_AI_API_KEY")
+    if fireworks_key:
+        print("🔐 FIREWORKS_AI_API_KEY found — will be passed into the sandbox for Fireworks models.")
+    else:
+        print("ℹ️  FIREWORKS_AI_API_KEY not set — Fireworks models won't be available unless set separately.")
+
     print(f"🚀 Creating Daytona GPU sandbox (cpu={args.cpu}, memory={args.memory}GB, "
           f"disk={args.disk}GB, gpu={args.gpu_count}, gpu_type={gpu_types or 'any available'})...")
 
@@ -381,6 +389,7 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
         env_vars={
             "OPENAI_API_KEY": openai_key,
             **({"ANTHROPIC_API_KEY": anthropic_key} if anthropic_key else {}),
+            **({"FIREWORKS_AI_API_KEY": fireworks_key} if fireworks_key else {}),
         },
         auto_delete_interval=0,  # GPU sandboxes must be ephemeral (Daytona requirement)
         auto_stop_interval=999999,  # ~694 days — effectively "never auto-stop"
@@ -982,6 +991,16 @@ def phase_run(sandbox, state: dict, args) -> dict:
             eval_session_id,
             SessionExecuteRequest(
                 command=f"export ANTHROPIC_API_KEY={shlex.quote(anthropic_key)}",
+                run_async=False,
+            ),
+        )
+    fireworks_key = args.fireworks_ai_api_key or os.environ.get("FIREWORKS_AI_API_KEY")
+    if fireworks_key:
+        print("🔐 Injecting FIREWORKS_AI_API_KEY into eval session...")
+        sandbox.process.execute_session_command(
+            eval_session_id,
+            SessionExecuteRequest(
+                command=f"export FIREWORKS_AI_API_KEY={shlex.quote(fireworks_key)}",
                 run_async=False,
             ),
         )
@@ -1838,6 +1857,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "dsgym eval's JSON/CSV output for cross-run filtering.")
     p.add_argument("--openai-api-key", default=None, help="Defaults to $OPENAI_API_KEY")
     p.add_argument("--anthropic-api-key", default=None, help="Defaults to $ANTHROPIC_API_KEY")
+    p.add_argument("--fireworks-ai-api-key", default=None, help="Defaults to $FIREWORKS_AI_API_KEY")
  
     # Results
     p.add_argument("--local-results-dir", default=str(SCRIPT_DIR / "results"))

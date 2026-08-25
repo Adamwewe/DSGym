@@ -425,9 +425,29 @@ class AllocatedCodeToolGroup:
             params["container_type"] = self.container_type
             print(f"🔍 Allocating container of type: {self.container_type}")
 
-        response = self.client.post(
-            f"{self.manager_url}/allocate", params=params, timeout=self.allocation_timeout
-        )
+        # Keep the historical "block until available" behavior when
+        # allocation_timeout is None, but emit heartbeat logs so this state is
+        # visible instead of looking like a silent sleep/hang.
+        if self.allocation_timeout is None:
+            poll_timeout = float(os.environ.get("DSGYM_ALLOCATE_POLL_TIMEOUT", "30"))
+            waited_seconds = 0.0
+            print(
+                "⏳ Waiting for an available container (no allocation timeout set). "
+                "Set allocation_timeout to fail fast."
+            )
+            while True:
+                try:
+                    response = self.client.post(
+                        f"{self.manager_url}/allocate", params=params, timeout=poll_timeout
+                    )
+                    break
+                except httpx.ReadTimeout:
+                    waited_seconds += poll_timeout
+                    print(f"⏳ Still waiting for container... {int(waited_seconds)}s elapsed")
+        else:
+            response = self.client.post(
+                f"{self.manager_url}/allocate", params=params, timeout=self.allocation_timeout
+            )
         response.raise_for_status()
         result = response.json()
         self.allocated_container = result["container_id"]

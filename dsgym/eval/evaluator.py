@@ -189,7 +189,8 @@ class Evaluator:
             dag_suffix = "dags" if dags else "nodags"
 
             # Build filename
-            parts = [str(challenge_name)]
+            run_slug = re.sub(r"[^a-zA-Z0-9]", "_", config.run_name or "evaluation")
+            parts = [run_slug, str(challenge_name)]
             if index != "":
                 parts.append(str(index))
             parts.extend([model_slug, dag_suffix])

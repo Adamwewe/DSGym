@@ -1,9 +1,11 @@
 FROM pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime
 
+ARG APP_UID=1000
+ARG APP_GID=1000
 
 # Create a non-root user with matching UID/GID to host user
-RUN groupadd -g 243000848 appuser && \
-    useradd -r -u 243000848 -g appuser appuser
+RUN groupadd -g ${APP_GID} appuser && \
+    useradd -r -u ${APP_UID} -g appuser appuser
 
 # Copy the executor application code
 COPY main.py kernel_executor.py instruction.txt output_cleaning.py /app/

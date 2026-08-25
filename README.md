@@ -94,6 +94,22 @@ python generate_compose.py -n 8 --types "executor-kaggle-apple:8" -m ../data/dat
 
 sudo docker compose -f docker-dspredict-apple.yml up -d
 sudo docker compose -f docker-dspredict-apple.yml down
+
+# DSPredict local low-resource profile (Linux CPU-only, no CUDA)
+# 1) Build lightweight CPU image (includes torch CPU wheels)
+sudo docker build -t executor-kaggle-cpu -f ./container_images/kaggle_image/Dockerfile.cpu ./container_images/kaggle_image
+sudo docker build -t manager-prebuilt ./manager
+
+# 2) Generate a tiny compose profile (default: 2 containers, conservative resources)
+chmod +x ./generate_dspredict_easy_local.sh
+./generate_dspredict_easy_local.sh 2
+
+# 3) Start stack (requires MANAGER_SECRET)
+export MANAGER_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+sudo docker compose -f docker-dspredict-easy-local.yml up -d
+
+# 4) Stop stack
+sudo docker compose -f docker-dspredict-easy-local.yml down
 ```
 
 ### 3. Run Evaluations
@@ -555,6 +571,9 @@ dsgym eval --dataset dspredict-hard --dags true --model gpt-4o
 
 # DAG-guided run on a subsample (see below)
 dsgym eval --dataset dspredict-hard --sample-n 5 --dags true --model gpt-4o
+
+# Easy split, tiny subset (recommended first local smoke test)
+dsgym eval --dataset dspredict-easy --sample-n 3 --sample-seed 42 --dags false --model gpt-4o
 ```
 
 ### Python API

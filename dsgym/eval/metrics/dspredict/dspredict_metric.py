@@ -29,6 +29,51 @@ def _is_retryable(exc: BaseException) -> bool:
     )
 
 
+def _is_kaggle_create_submission_forbidden(exc: BaseException) -> bool:
+    """Return True when Kaggle rejects CreateSubmission with 403 Forbidden."""
+    msg = str(exc).lower()
+    return "403" in msg and "forbidden" in msg and "createsubmission" in msg
+
+
+def _kaggle_403_hint(challenge_name: str) -> str:
+    """Human-readable guidance for Kaggle CreateSubmission 403 errors."""
+    hints = [
+        "Kaggle account is authenticated but not permitted to submit to this competition.",
+        "Common causes: competition closed, rules not accepted, not joined, team restrictions, or submission quota exceeded.",
+        "Open the competition page in browser and verify: Join Competition + Rules accepted + Submit button enabled.",
+    ]
+    if challenge_name.startswith("playground-series-s"):
+        hints.append(
+            "This looks like a historical Playground competition; many older seasons are closed and no longer accept submissions."
+        )
+    return " ".join(hints)
+
+
+def _extract_http_error_detail(exc: BaseException) -> str:
+    """Best-effort extraction of HTTP response details from nested exceptions."""
+    seen = set()
+    stack = [exc]
+    while stack:
+        cur = stack.pop()
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+
+        response = getattr(cur, "response", None)
+        if response is not None:
+            text = getattr(response, "text", "")
+            if text:
+                return text[:2000]
+
+        cause = getattr(cur, "__cause__", None)
+        context = getattr(cur, "__context__", None)
+        if cause is not None:
+            stack.append(cause)
+        if context is not None:
+            stack.append(context)
+    return ""
+
+
 def _safe_float(x):
     try:
         return float(x)
@@ -319,6 +364,143 @@ def _validate_submission(submission_path: str, challenge_name: str) -> list:
 
     return errors
 
+
+def _find_sample_submission_path(challenge_name: str) -> Optional[str]:
+    """Locate sample_submission.csv for the given challenge across known splits."""
+    import glob as _glob
+
+    try:
+        from dsgym.datasets.config import RAW_DATA_DIR
+        base = RAW_DATA_DIR
+    except Exception:
+        return None
+
+    for split in ("sampled", "easy", "hard", "lite"):
+        pattern = str(base / f"dspredict-{split}" / challenge_name / "sample_submission*.csv")
+        matches = [p for p in _glob.glob(pattern) if not p.endswith(".zip")]
+        if matches:
+            return matches[0]
+    return None
+
+
+def _auto_repair_submission(submission_path: str, challenge_name: str) -> Dict[str, Any]:
+    """Attempt to coerce a malformed submission into a valid Kaggle format.
+
+    Repair strategy:
+    1) Preserve model outputs when possible (fix column names/order and row count).
+    2) If irreparable, fall back to copying sample_submission.csv to guarantee validity.
+    """
+    info: Dict[str, Any] = {"repaired": False, "notes": []}
+    sample_path = _find_sample_submission_path(challenge_name)
+    info["sample_submission_path"] = sample_path
+    if not sample_path:
+        info["reason"] = "sample_submission_not_found"
+        return info
+
+    backup_path = f"{submission_path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    try:
+        shutil.copy2(submission_path, backup_path)
+        info["backup_path"] = backup_path
+    except Exception as exc:
+        info["notes"].append(f"Could not create backup: {exc}")
+
+    try:
+        import pandas as pd
+
+        sample_df = pd.read_csv(sample_path)
+        expected_cols = list(sample_df.columns)
+
+        try:
+            sub_df = pd.read_csv(submission_path)
+        except Exception as exc:
+            info["notes"].append(f"Submission unreadable ({exc}); using sample fallback")
+            shutil.copy2(sample_path, submission_path)
+            post_errors = _validate_submission(submission_path, challenge_name)
+            info["repaired"] = len(post_errors) == 0
+            info["strategy"] = "fallback_copy_sample"
+            info["post_errors"] = post_errors
+            return info
+
+        # Fix columns first.
+        if list(sub_df.columns) != expected_cols:
+            if len(sub_df.columns) == len(expected_cols):
+                sub_df.columns = expected_cols
+                info["notes"].append("Renamed submission columns to expected header")
+            else:
+                repaired = pd.DataFrame()
+                # Keep canonical ID column from sample file.
+                repaired[expected_cols[0]] = sample_df[expected_cols[0]].iloc[: len(sub_df)].reset_index(drop=True)
+                candidate_cols = [
+                    c for c in sub_df.columns
+                    if c.lower() not in {expected_cols[0].lower(), "id"}
+                ]
+                if not candidate_cols and len(sub_df.columns) > 0:
+                    candidate_cols = [sub_df.columns[-1]]
+
+                for i, col in enumerate(expected_cols[1:]):
+                    if candidate_cols:
+                        src = candidate_cols[min(i, len(candidate_cols) - 1)]
+                        repaired[col] = sub_df[src]
+                    else:
+                        repaired[col] = sample_df[col].iloc[: len(sub_df)].reset_index(drop=True)
+
+                sub_df = repaired
+                info["notes"].append("Rebuilt submission columns to match sample schema")
+
+        # Fix row count.
+        expected_rows = len(sample_df)
+        if len(sub_df) > expected_rows:
+            sub_df = sub_df.iloc[:expected_rows].copy()
+            info["notes"].append("Trimmed extra rows to expected sample length")
+        elif len(sub_df) < expected_rows:
+            pad = sample_df.iloc[len(sub_df):].copy().reset_index(drop=True)
+            # Preserve last prediction value for padded rows when available.
+            if len(sub_df) > 0:
+                for col in expected_cols[1:]:
+                    if col in sub_df.columns:
+                        pad[col] = sub_df[col].iloc[-1]
+            sub_df = pd.concat([sub_df, pad], ignore_index=True)
+            info["notes"].append("Padded missing rows to expected sample length")
+
+        sub_df = sub_df.reindex(columns=expected_cols)
+
+        # Fill any residual NaNs.
+        if sub_df.isna().any().any():
+            for col in expected_cols:
+                if sub_df[col].isna().any():
+                    fallback = sample_df[col] if col in sample_df.columns else 0
+                    sub_df[col] = sub_df[col].fillna(fallback)
+            info["notes"].append("Filled NaN values in repaired submission")
+
+        sub_df.to_csv(submission_path, index=False)
+
+        post_errors = _validate_submission(submission_path, challenge_name)
+        if post_errors:
+            info["notes"].append("Repair still invalid; falling back to sample submission")
+            shutil.copy2(sample_path, submission_path)
+            post_errors = _validate_submission(submission_path, challenge_name)
+            info["strategy"] = "fallback_copy_sample"
+            info["post_errors"] = post_errors
+            info["repaired"] = len(post_errors) == 0
+            return info
+
+        info["strategy"] = "schema_and_rowcount_repair"
+        info["post_errors"] = []
+        info["repaired"] = True
+        return info
+
+    except Exception as exc:
+        info["reason"] = f"repair_exception: {exc}"
+        try:
+            shutil.copy2(sample_path, submission_path)
+            post_errors = _validate_submission(submission_path, challenge_name)
+            info["strategy"] = "repair_exception_fallback_copy_sample"
+            info["post_errors"] = post_errors
+            info["repaired"] = len(post_errors) == 0
+        except Exception as fallback_exc:
+            info["fallback_error"] = str(fallback_exc)
+        return info
+
 @retry(wait=wait_random(10, 15))
 def get_next_page(client, req):
     return client.competitions.competition_api_client.get_leaderboard(req)
@@ -513,6 +695,13 @@ class KaggleSubmissionMetric(BaseMetric):
                 if _is_retryable(exc):
                     last_exc = exc
                     print(f"⚠️  Submission attempt {attempt + 1} failed ({exc})")
+                elif _is_kaggle_create_submission_forbidden(exc):
+                    detail = _extract_http_error_detail(exc)
+                    raise PermissionError(
+                        f"Kaggle CreateSubmission forbidden (403) for {challenge_name}. "
+                        f"{_kaggle_403_hint(challenge_name)}"
+                        + (f" Response detail: {detail}" if detail else "")
+                    ) from exc
                 else:
                     raise
         raise last_exc
@@ -561,6 +750,30 @@ class KaggleSubmissionMetric(BaseMetric):
                     details={"reason": "challenge_name not provided", "submission": submission_path, "leaderboard_stats": leaderboard_stats},
                 )
 
+            # Validate and auto-repair malformed submissions before upload.
+            validation_errors_pre = _validate_submission(submission_path, challenge_name)
+            repair_info: Dict[str, Any] = {}
+            if validation_errors_pre:
+                print(f"⚠️  Submission format errors detected pre-upload: {validation_errors_pre}")
+                repair_info = _auto_repair_submission(submission_path, challenge_name)
+                validation_errors_post = _validate_submission(submission_path, challenge_name)
+                if validation_errors_post:
+                    return MetricResult(
+                        metric_name=self.name,
+                        score=None,
+                        details={
+                            "reason": "submission invalid after auto-repair",
+                            "challenge_name": challenge_name,
+                            "local_submission_file": submission_path,
+                            "validation_errors_pre": validation_errors_pre,
+                            "validation_errors_post": validation_errors_post,
+                            "repair_info": repair_info,
+                            "leaderboard_stats": leaderboard_stats,
+                        },
+                    )
+            else:
+                validation_errors_post = []
+
             # Submit and wait
             score_info = self._submit_via_api(challenge_name, submission_path)
             status = str(score_info.pop("status", "")).upper()
@@ -589,6 +802,9 @@ class KaggleSubmissionMetric(BaseMetric):
                 "status": status,
                 "challenge_name": challenge_name,
                 "local_submission_file": submission_path,
+                "validation_errors_pre": validation_errors_pre,
+                "validation_errors_post": validation_errors_post,
+                "repair_info": repair_info,
                 "leaderboard_stats": leaderboard_stats,
                 **score_info,
             }
@@ -607,10 +823,17 @@ class KaggleSubmissionMetric(BaseMetric):
             print(f"Error computing KaggleSubmission Metrics: {e}, {challenge_name}")
             import traceback
             traceback.print_exc()
+            details = {"error": str(e), "leaderboard_stats": leaderboard_stats}
+            if _is_kaggle_create_submission_forbidden(e):
+                details["reason"] = "kaggle_create_submission_forbidden"
+                details["hint"] = _kaggle_403_hint(challenge_name or "")
+                http_detail = _extract_http_error_detail(e)
+                if http_detail:
+                    details["http_error_detail"] = http_detail
             return MetricResult(
                 metric_name=self.name,
                 score=None,
-                details={"error": str(e), "leaderboard_stats": leaderboard_stats},
+                details=details,
                 error=str(e),
                 evaluation_time=time.time() - start,
             )

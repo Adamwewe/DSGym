@@ -11,7 +11,7 @@ from statistics import mean
 from ..base import BaseDataset
 from ..registry import register_dataset
 from ..utils import apply_limit_and_start, validate_file_exists, create_standard_task
-from ..prompts import SYSTEM_PROMPT_DSPREDICT, SYSTEM_PROMPT_DAG_DSPREDICT
+from ..prompts import SYSTEM_PROMPT_DSPREDICT, SYSTEM_PROMPT_DAG_DSPREDICT, get_variant, list_variants
 from dsgym.datasets.config import get_task_path, RAW_DATA_DIR
 from .kaggle_downloader import KaggleChallengeDownloader
 
@@ -37,7 +37,7 @@ When you finished training the best model, you should generate the final submiss
 3. **Validate the submission format** by comparing your file against the sample submission:
    ```python
    import pandas as pd
-   sample = pd.read_csv('/data/dspredict-sampled/{challenge_name}/sample_submission.csv')
+    sample = pd.read_csv('__SAMPLE_SUBMISSION_PATH__')
    submission = pd.read_csv('/submission/submission.csv')
    assert list(submission.columns) == list(sample.columns), f"Column mismatch: expected {list(sample.columns)}, got {list(submission.columns)}"
    assert len(submission) == len(sample), f"Row count mismatch: expected {len(sample)}, got {len(submission)}"
@@ -48,8 +48,14 @@ When you finished training the best model, you should generate the final submiss
 """
 
 
-def create_dspredict_prompt(challenge_name: str, description: str, data_paths: Dict[str, List[str]]) -> str:
+def create_dspredict_prompt(
+    challenge_name: str,
+    description: str,
+    data_paths: Dict[str, List[str]],
+    sample_submission_path: str,
+) -> str:
     dataset_path = data_paths['virtual'][0]
+    instructions = DSPREDICT_INSTRUCTIONS.replace('__SAMPLE_SUBMISSION_PATH__', sample_submission_path)
     
     user_content = f"""**CHALLENGE NAME: {challenge_name}**
 
@@ -58,7 +64,10 @@ def create_dspredict_prompt(challenge_name: str, description: str, data_paths: D
 **DATASET LOCATIONS (use full paths):**
 {dataset_path}
 
-{DSPREDICT_INSTRUCTIONS}
+**SAMPLE SUBMISSION PATH (use this exact file for format checks):**
+{sample_submission_path}
+
+{instructions}
 """
     return user_content
 
@@ -83,6 +92,7 @@ class DSPredictDataset(BaseDataset):
         split: str = "easy", 
         start_index: int = 0,
         generate_dags: bool = False,
+        prompt_variant: str = "structured",
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
@@ -127,6 +137,13 @@ class DSPredictDataset(BaseDataset):
         downloader = None
         kaggle_data_dir = RAW_DATA_DIR / f"dspredict-{split}"
 
+        selected_variant = get_variant(prompt_variant)
+        if selected_variant is None:
+            available = ", ".join(sorted(list_variants().keys()))
+            raise ValueError(
+                f"Unknown prompt variant: {prompt_variant}. Available variants: {available}"
+            )
+
         for idx, item in enumerate(items):
             docker_path = item['docker_challenge_path']
             
@@ -159,11 +176,13 @@ class DSPredictDataset(BaseDataset):
                 data_root=RAW_DATA_DIR,
                 virtual_data_root=self.virtual_data_root
             )
+            sample_submission_path = f"{data_paths['virtual'][0]}/sample_submission.csv"
             
             user_content = create_dspredict_prompt(
                 challenge_name=item['challenge_name'],
                 description=item['description'],
                 data_paths=data_paths
+                , sample_submission_path=sample_submission_path
             )
             
             extra_info = {
@@ -179,7 +198,14 @@ class DSPredictDataset(BaseDataset):
             }
             
             # Create standardized sample
-            active_system_prompt = SYSTEM_PROMPT_DAG_DSPREDICT if generate_dags else SYSTEM_PROMPT_DSPREDICT
+            base_system_prompt = SYSTEM_PROMPT_DAG_DSPREDICT if generate_dags else SYSTEM_PROMPT_DSPREDICT
+            active_system_prompt = (
+                f"{base_system_prompt}\n\n"
+                f"# Prompt Variant ({selected_variant.name})\n"
+                f"{selected_variant.system_prompt_template}\n\n"
+                f"# Response Format Requirements\n"
+                f"{selected_variant.format_instructions}"
+            )
             standard_sample = create_standard_task(
                 prompt_content=user_content,
                 ground_truth="",  # DSPredict competitions don't have ground truth

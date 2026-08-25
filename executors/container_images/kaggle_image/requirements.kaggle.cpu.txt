@@ -1,0 +1,27 @@
+# Core data stack
+numpy
+pandas
+pyarrow
+polars
+scipy
+scikit-learn
+tabulate
+
+# Common tabular boosters used in DSPredict tasks
+xgboost
+lightgbm
+catboost
+category_encoders
+optuna
+
+# Service/runtime dependencies
+fastapi==0.104.1
+uvicorn==0.24.0
+httpx
+jupyter-client==8.6.0
+ipykernel==6.26.0
+requests
+sympy
+tavily-python
+tqdm
+rich

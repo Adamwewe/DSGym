@@ -1,0 +1,39 @@
+# Linux CPU-only variant for low-footprint local DSPredict runs.
+# Build with:
+#   docker build -t executor-kaggle-cpu \
+#     --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g) \
+#     -f Dockerfile.cpu .
+FROM python:3.12-slim
+
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONWARNINGS=ignore::FutureWarning \
+    PORT=8432 \
+    CODE_FOLDER=/data
+
+# Keep system deps minimal; libgomp1 is required by LightGBM/XGBoost wheels.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Match container runtime user to host user in rootless Docker setups.
+RUN groupadd -g ${APP_GID} appuser && useradd -r -u ${APP_UID} -g appuser appuser
+
+COPY main.py kernel_executor.py instruction.txt output_cleaning.py /app/
+WORKDIR /app
+
+COPY requirements.kaggle.cpu.txt /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+
+RUN mkdir -p /submission && chown -R appuser:appuser /submission /app
+
+EXPOSE 8432
+
+USER appuser
+
+CMD ["python", "main.py"]

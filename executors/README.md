@@ -436,6 +436,37 @@ docker compose -f docker-dspredict-apple.yml up -d --no-deps --force-recreate ma
 
 > **Note:** `docker compose restart` keeps the old image. Always use `--force-recreate` after rebuilding.
 
+### Linux CPU-Only Low-Storage DSPredict Profile
+
+For local Linux machines with limited disk/GPU capacity, use the CPU-only Kaggle executor and a small container pool.
+
+```bash
+# Build lightweight DSPredict executor (no CUDA, torch CPU wheel)
+docker build -t executor-kaggle-cpu \
+  -f ./container_images/kaggle_image/Dockerfile.cpu \
+  ./container_images/kaggle_image
+
+# Build manager
+docker build -t manager-prebuilt ./manager/
+
+# Generate a local profile (defaults: 2 containers, lower memory/cpu)
+chmod +x ./generate_dspredict_easy_local.sh
+./generate_dspredict_easy_local.sh 2
+
+# Start
+export MANAGER_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+docker compose -f docker-dspredict-easy-local.yml up -d
+```
+
+You can tune resources without editing files:
+
+```bash
+MEM_LIMIT=4G CPUS=1.5 MEM_RESERVATION=768M EXECUTION_TIMEOUT=1800 \
+  ./generate_dspredict_easy_local.sh 1
+```
+
+This profile is intended for DSPredict easy/lite iteration with `--sample-n` subsets rather than full-throughput hard-split sweeps.
+
 ### `AllocatedCodeEnv` — Client-Side Allocation Behaviour
 
 When using `AllocatedCodeEnv` (the Python client environment), two kwargs control how container allocation is handled:

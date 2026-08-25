@@ -9,6 +9,8 @@ import time
 import traceback
 from typing import Dict, Any, List
 import os
+import glob
+import re
 from datetime import datetime
 import shutil
 
@@ -24,6 +26,8 @@ class DSPredictReActAgent(ReActDSAgent):
         self.submission_dir = kwargs.get('submission_dir', '')
         # Optional HTTP client timeout (seconds) for code execution manager
         self.time_out = kwargs.get('time_out', 1800)
+        self.allocation_timeout = kwargs.get('allocation_timeout', None)
+        self.manager_secret = kwargs.get('manager_secret', os.environ.get('MANAGER_SECRET'))
 
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -62,6 +66,8 @@ class DSPredictReActAgent(ReActDSAgent):
                 output_dir=self.output_dir,
                 time_out=self.time_out,
                 container_type=self.container_type,
+                allocation_timeout=self.allocation_timeout,
+                manager_secret=self.manager_secret,
             )
 
             # Initialize environment
@@ -123,12 +129,12 @@ class DSPredictReActAgent(ReActDSAgent):
                 env.save_prediction(final_answer, filename_prefix=prefix)
 
             execution_time = time.time() - start_time
-            container_dir = os.path.join(self.submission_dir, f"container_00{container_id}")
-            submission_file = os.path.join(container_dir, "submission.csv")
+            submission_file, container_dir = self._find_submission_file(container_id)
             submission_path = ""
-            print(f"{submission_file=}")
+            print(f"submission_file={submission_file}")
             success = False
-            if os.path.exists(submission_file):
+            error_msg = None
+            if submission_file and os.path.exists(submission_file):
                 challenge_name = sample.get("extra_info", {}).get("challenge_name", "")
 
                 # ── submission format validation ──────────────────────────────
@@ -149,10 +155,13 @@ class DSPredictReActAgent(ReActDSAgent):
 
                         error_lines = "\n".join(f"  - {e}" for e in errors)
                         print(f"⚠️  submission.csv format errors (fix attempt {fix_attempt + 1}):\n{error_lines}")
+                        sample_submission_path = (
+                            f"{sample.get('extra_info', {}).get('data_files', {}).get('virtual', [''])[0]}/sample_submission.csv"
+                        )
                         fix_msg = (
                             f"Your submission.csv has format errors that Kaggle will reject:\n{error_lines}\n\n"
                             f"The expected format is defined in "
-                            f"/data/dspredict-sampled/{challenge_name}/sample_submission.csv inside the container.\n"
+                            f"{sample_submission_path} inside the container.\n"
                             f"Fix the column names and/or row count, overwrite submission.csv, and confirm it matches "
                             f"the sample exactly (same columns, same number of rows)."
                         )
@@ -193,13 +202,19 @@ class DSPredictReActAgent(ReActDSAgent):
                 shutil.copy2(submission_file, unique_path)
                 print(f"💾 Submission file saved locally: {unique_path}")
                 submission_path = unique_path
+            else:
+                error_msg = (
+                    "Could not locate submission.csv on host. "
+                    "Checked submission directories for this container."
+                )
+                print(f"⚠️  {error_msg}")
 
 
             return {
                 "solution": submission_path,
                 "success": success,
                 "turns": actual_turns,
-                "error": None,
+                "error": error_msg,
                 "metadata": {
                     "model": self.model,
                     "backend": self.backend,
@@ -256,6 +271,222 @@ class DSPredictReActAgent(ReActDSAgent):
             "step_time": step_time,
         })
         return trajectory
+
+    def _candidate_submission_roots(self) -> List[str]:
+        """Return ordered host directories where containers write submissions.
+        
+        Note: For per-run isolation, _find_submission_file() will extract the base
+        root (parent directory) automatically.
+        """
+        raw_candidates: List[str] = []
+
+        # 1) User-provided submission_dir and its parent.
+        if self.submission_dir:
+            raw_candidates.append(self.submission_dir)
+            raw_candidates.append(os.path.dirname(self.submission_dir))
+
+        # 2) Environment override and its parent.
+        env_root = os.environ.get("DSGYM_SUBMISSION_DIR", "")
+        if env_root:
+            raw_candidates.append(env_root)
+            raw_candidates.append(os.path.dirname(env_root))
+
+        # 3) Standard relative paths from current working directory.
+        raw_candidates.extend([
+            "./submissions",
+            "./submissions_local",
+        ])
+
+        # 4) Standard paths from repository root.
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        raw_candidates.extend([
+            os.path.join(repo_root, "submissions"),
+            os.path.join(repo_root, "submissions_local"),
+        ])
+
+        # 5) Parse compose files for explicit host mounts to /submission.
+        raw_candidates.extend(self._submission_roots_from_compose(repo_root))
+
+        # Keep unique entries while preserving order.
+        candidates: List[str] = []
+        seen: set[str] = set()
+        for path in raw_candidates:
+            if not path:
+                continue
+            norm = os.path.abspath(path)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            candidates.append(norm)
+
+        return candidates
+
+    def _submission_roots_from_compose(self, repo_root: str) -> List[str]:
+        """Discover host submission roots from docker compose volume mounts.
+
+        This reads executor compose files and extracts host paths from lines like:
+            - ../submissions_local/container_000:/submission
+
+        It then returns both the exact mount dir and its parent root.
+        """
+        compose_dir = os.path.join(repo_root, "executors")
+        if not os.path.isdir(compose_dir):
+            return []
+
+        discovered: List[str] = []
+        compose_files = glob.glob(os.path.join(compose_dir, "*.yml"))
+        volume_re = re.compile(r"^\s*-\s*([^:]+):/submission(?:[:\s]|$)")
+
+        for compose_file in compose_files:
+            try:
+                with open(compose_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        m = volume_re.match(line)
+                        if not m:
+                            continue
+
+                        host_path = m.group(1).strip().strip('"').strip("'")
+                        host_path = os.path.expandvars(host_path)
+                        if not host_path:
+                            continue
+
+                        if not os.path.isabs(host_path):
+                            host_path = os.path.abspath(os.path.join(os.path.dirname(compose_file), host_path))
+                        else:
+                            host_path = os.path.abspath(host_path)
+
+                        discovered.append(host_path)
+                        discovered.append(os.path.dirname(host_path))
+            except OSError:
+                continue
+
+        # De-duplicate while preserving order.
+        unique: List[str] = []
+        seen = set()
+        for p in discovered:
+            if p in seen:
+                continue
+            seen.add(p)
+            unique.append(p)
+        return unique
+
+    def _container_dir_names(self, container_id: int) -> List[str]:
+        """Return plausible host directory names for a given container id."""
+        cid = int(container_id)
+        return [
+            f"container_{cid:03d}",
+            f"container_00{cid}",
+            f"container_{cid}",
+            f"executor-{cid:03d}",
+        ]
+
+    def _find_submission_file(self, container_id: int) -> tuple[str, str]:
+        """Resolve and isolate the submission CSV for this container.
+
+        When using per-run isolation (self.submission_dir set to a run-specific path),
+        this method will:
+        1. Search standard locations (where Docker containers actually write)
+        2. Copy the found file to the run-specific isolation directory
+        3. Return the isolated path
+
+        Returns:
+            (submission_file_path, container_dir_path)
+            Empty strings when no candidate file is found.
+        """
+        root_dirs = self._candidate_submission_roots()
+        container_dir_candidates: List[str] = []
+
+        # If submission_dir points to a run-specific directory, keep an isolated
+        # copy there after locating the real file under shared roots.
+        per_run_isolation_dir = None
+        if self.submission_dir:
+            base = os.path.basename(os.path.abspath(self.submission_dir))
+            if base not in {"submissions", "submissions_local"} and not base.startswith("container_"):
+                per_run_isolation_dir = os.path.abspath(self.submission_dir)
+
+        for root in root_dirs:
+            for dirname in self._container_dir_names(container_id):
+                container_dir = os.path.join(root, dirname)
+                if os.path.isdir(container_dir) and container_dir not in container_dir_candidates:
+                    container_dir_candidates.append(container_dir)
+
+        # First preference: canonical submission.csv in any detected container dir.
+        for container_dir in container_dir_candidates:
+            candidate = os.path.join(container_dir, "submission.csv")
+            if os.path.isfile(candidate):
+                # If we're using per-run isolation, copy the file to the isolation directory
+                if per_run_isolation_dir:
+                    isolated_container_dir = os.path.join(per_run_isolation_dir, os.path.basename(container_dir))
+                    os.makedirs(isolated_container_dir, exist_ok=True)
+                    isolated_path = os.path.join(isolated_container_dir, "submission.csv")
+                    shutil.copy2(candidate, isolated_path)
+                    print(f"📋 Isolated submission: {candidate} → {isolated_path}")
+                    return isolated_path, isolated_container_dir
+                return candidate, container_dir
+
+        # Fallback: choose latest *.csv in detected container dirs.
+        latest_csv = ""
+        latest_dir = ""
+        latest_mtime = -1.0
+        for container_dir in container_dir_candidates:
+            for path in glob.glob(os.path.join(container_dir, "*.csv")):
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                if mtime > latest_mtime:
+                    latest_mtime = mtime
+                    latest_csv = path
+                    latest_dir = container_dir
+
+        if latest_csv:
+            # If we're using per-run isolation, copy the file
+            if per_run_isolation_dir:
+                isolated_container_dir = os.path.join(per_run_isolation_dir, os.path.basename(latest_dir))
+                os.makedirs(isolated_container_dir, exist_ok=True)
+                isolated_path = os.path.join(isolated_container_dir, os.path.basename(latest_csv))
+                shutil.copy2(latest_csv, isolated_path)
+                print(f"📋 Isolated submission: {latest_csv} → {isolated_path}")
+                return isolated_path, isolated_container_dir
+            return latest_csv, latest_dir
+
+        # Last-chance recursive scan under all candidate roots.
+        expected_dir_tokens = set(self._container_dir_names(container_id))
+        for root in root_dirs:
+            if not os.path.isdir(root):
+                continue
+            pattern = os.path.join(root, "**", "*submission*.csv")
+            matches = glob.glob(pattern, recursive=True)
+            if not matches:
+                continue
+            filtered = [
+                p for p in matches
+                if any(token in p for token in expected_dir_tokens)
+            ]
+            if not filtered:
+                continue
+            filtered.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            path = filtered[0]
+
+            if per_run_isolation_dir:
+                src_dir = os.path.dirname(path)
+                isolated_container_dir = os.path.join(per_run_isolation_dir, os.path.basename(src_dir))
+                os.makedirs(isolated_container_dir, exist_ok=True)
+                isolated_path = os.path.join(isolated_container_dir, os.path.basename(path))
+                shutil.copy2(path, isolated_path)
+                print(f"📋 Isolated submission: {path} → {isolated_path}")
+                return isolated_path, isolated_container_dir
+
+            return path, os.path.dirname(path)
+
+        print(
+            "⚠️  Submission discovery failed.",
+            f"container_id={container_id}",
+            f"roots={root_dirs}",
+            f"checked_container_dirs={container_dir_candidates}",
+            sep="\n",
+        )
+        return "", ""
 
     def _prune_conversation(self, conversation: List[Dict[str, Any]], keep_recent: int = 20) -> List[Dict[str, Any]]:
         """

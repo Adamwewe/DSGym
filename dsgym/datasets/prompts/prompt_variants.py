@@ -1337,10 +1337,32 @@ VARIANTS_REGISTRY = {
     "data-quality-methods": VARIANT_DATA_QUALITY_METHODS,
 }
 
+VARIANT_ALIASES = {
+  # Common shorthand and legacy forms
+  "reasoning-impl-strict": "reasoning-implementation-strict",
+  "reasoning_impl_strict": "reasoning-implementation-strict",
+  "ris": "reasoning-implementation-strict",
+  "lw": "lightweight",
+  "struct": "structured",
+  "ro": "reasoning-only",
+  "rf": "reasoning-focused",
+  "det": "detailed",
+  "ar": "adaptive-revision",
+  "ea": "expert-agentic",
+  "pd": "problem-decomposition",
+  "dqm": "data-quality-methods",
+}
+
+
+def _normalize_variant_name(name: str) -> str:
+    """Normalize user-provided variant names to canonical lookup keys."""
+    normalized = name.strip().lower().replace("_", "-")
+    return VARIANT_ALIASES.get(normalized, normalized)
+
 
 def get_variant(name: str) -> Optional[PromptVariant]:
     """Get a prompt variant by name."""
-    return VARIANTS_REGISTRY.get(name.lower())
+    return VARIANTS_REGISTRY.get(_normalize_variant_name(name))
 
 
 def list_variants() -> Dict[str, str]:

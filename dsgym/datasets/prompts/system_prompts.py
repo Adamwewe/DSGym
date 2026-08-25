@@ -130,7 +130,7 @@ Important rules:
 - **Submission format validation (mandatory before finishing):** run the following check and fix any errors before submitting your final answer:
   ```python
   import pandas as pd
-  sample = pd.read_csv('/data/dspredict-sampled/<challenge_name>/sample_submission.csv')
+  sample = pd.read_csv('<challenge_data_dir>/sample_submission.csv')  # use the exact challenge path shown in DATASET LOCATIONS
   sub = pd.read_csv('/submission/submission.csv')
   assert list(sub.columns) == list(sample.columns), f"Column mismatch — expected {list(sample.columns)}, got {list(sub.columns)}"
   assert len(sub) == len(sample), f"Row count mismatch — expected {len(sample)}, got {len(sub)}"
@@ -288,7 +288,7 @@ This must pass. If it fails, fix the submission and re-run before finishing.
 
 ```python
 import pandas as pd
-sample = pd.read_csv('/data/dspredict-sampled/<challenge_name>/sample_submission.csv')
+sample = pd.read_csv('<challenge_data_dir>/sample_submission.csv')  # use the exact challenge path shown in DATASET LOCATIONS
 sub = pd.read_csv('/submission/submission.csv')
 assert list(sub.columns) == list(sample.columns), f"Column mismatch: expected {list(sample.columns)}, got {list(sub.columns)}"
 assert len(sub) == len(sample), f"Row count mismatch: expected {len(sample)}, got {len(sub)}"
@@ -593,7 +593,7 @@ DAG_INSTRUCTION_STYLE_VARIANTS: dict = {
             "## Submission validation (mandatory before <answer>)\n\n"
             "```python\n"
             "import pandas as pd\n"
-            "sample = pd.read_csv('/data/dspredict-sampled/<challenge_name>/sample_submission.csv')\n"
+            "sample = pd.read_csv('<challenge_data_dir>/sample_submission.csv')  # use path from DATASET LOCATIONS\n"
             "sub = pd.read_csv('/submission/submission.csv')\n"
             "assert list(sub.columns) == list(sample.columns)\n"
             "assert len(sub) == len(sample)\n"
@@ -630,7 +630,7 @@ DAG_INSTRUCTION_STYLE_VARIANTS: dict = {
             "Submission validation (run before <answer>):\n"
             "```python\n"
             "import pandas as pd\n"
-            "sample = pd.read_csv('/data/dspredict-sampled/<challenge_name>/sample_submission.csv')\n"
+            "sample = pd.read_csv('<challenge_data_dir>/sample_submission.csv')  # use path from DATASET LOCATIONS\n"
             "sub = pd.read_csv('/submission/submission.csv')\n"
             "assert list(sub.columns) == list(sample.columns) and len(sub) == len(sample)\n"
             "assert sub.isna().sum().sum() == 0; print('Submission OK')\n"

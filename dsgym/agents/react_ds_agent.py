@@ -5,6 +5,7 @@ This agent provides a self-contained implementation using the new DSGym
 backend and environment components.
 """
 
+import os
 import time
 import traceback
 from typing import Dict, Any, List
@@ -39,6 +40,8 @@ class ReActDSAgent(BaseAgent):
         self.max_turns = kwargs.get('max_turns', 15)
         self.output_dir = kwargs.get('output_dir', './outputs')
         self.container_type = kwargs.get('container_type', 'auto')
+        self.allocation_timeout = kwargs.get('allocation_timeout', None)
+        self.manager_secret = kwargs.get('manager_secret', os.environ.get('MANAGER_SECRET'))
     
     def solve_task(self, sample: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -72,6 +75,8 @@ class ReActDSAgent(BaseAgent):
                 max_turns=self.max_turns,
                 output_dir=self.output_dir,
                 container_type=self.container_type,
+                allocation_timeout=self.allocation_timeout,
+                manager_secret=self.manager_secret,
             )
             
             # Initialize environment

@@ -43,6 +43,7 @@ def generate_container_config(container_id: int,
     config = {
         'image': container_type,
         'command': 'python main.py',
+        'user': '${LOCAL_UID:-1000}:${LOCAL_GID:-1000}',
         'ports': [f'{host_port}:8432'],
         'environment': base_env,
         'restart': restart_policy,
@@ -172,9 +173,17 @@ def generate_compose_file(
         print(f"   Save directories: {mountable_volume_saveto}/container_XXX -> /submission")
         # Create individual directories for each container
         os.makedirs(mountable_volume_saveto, exist_ok=True)
+        try:
+            os.chmod(mountable_volume_saveto, 0o777)
+        except OSError:
+            pass
         for i in range(num_containers):
             container_save_dir = os.path.join(mountable_volume_saveto, f'container_{i:03d}')
             os.makedirs(container_save_dir, exist_ok=True)
+            try:
+                os.chmod(container_save_dir, 0o777)
+            except OSError:
+                pass
         print(f"   ✅ Created {num_containers} container directories in {mountable_volume_saveto}")
     
     if extra_env:

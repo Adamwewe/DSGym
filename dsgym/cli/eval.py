@@ -9,6 +9,8 @@ similar to the example scripts but with a standardized CLI.
 import os
 import sys
 import argparse
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +18,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from dsgym.datasets import DatasetRegistry
+from dsgym.datasets.prompts import get_variant, list_variants
 from dsgym.agents import ReActDSAgent, DSPredictReActAgent
 from dsgym.eval import Evaluator
 from dsgym.eval.utils import EvaluationConfig
@@ -49,14 +52,9 @@ def add_eval_parser(subparsers):
                             "When false (default), uses the standard system prompt for baseline comparison. "
                             "Accepts true/false.")
     parser.add_argument("--prompt-variant", type=str, default="structured",
-                       choices=["lightweight", "structured", "reasoning-only", "reasoning-focused",
-                               "reasoning-implementation-strict", "detailed", "adaptive-revision", "expert-agentic"],
                        help="Prompt variant to use for system prompts. "
-                            "lightweight: minimal guidance; structured: standard format; "
-                            "reasoning-only: strict reasoning DAG; reasoning-focused: reasoning primary; "
-                            "reasoning-implementation-strict: both DAGs required; detailed: rich guidance; "
-                            "adaptive-revision: adaptive planning with up to 5 revisions; "
-                            "expert-agentic: 2026 best practices with agentic loop.")
+                    "Use `dsgym prompts list` to see all available variants. "
+                    "Common aliases are accepted (e.g., reasoning-impl-strict).")
     parser.add_argument("--sample-n", type=int, default=None, metavar="N",
                        help="(DSBio/DSPredict) Randomly sample N tasks from the source split and save "
                             "as dsbio_sampled.json / dspredict_sampled.json before evaluating. "
@@ -83,6 +81,9 @@ def add_eval_parser(subparsers):
     # Infrastructure
     parser.add_argument("--manager-url", type=str, default="http://localhost:5000",
                        help="Code sandbox manager URL")
+    parser.add_argument("--submission-dir", type=str, default=None,
+                       help="Host directory where container /submission is mounted for DSPredict. "
+                            "Defaults to DSGYM_SUBMISSION_DIR env var or ./submissions.")
     parser.add_argument("--max-workers", type=int, default=None,
                        help="Maximum number of parallel workers (auto-set based on backend if not provided)")
     parser.add_argument("--allocation-timeout", type=float, default=None,
@@ -103,6 +104,15 @@ def run_eval(args) -> int:
     print(f"Backend: {args.backend}")
     print(f"Dataset: {args.dataset}")
     print(f"Samples: {args.limit if args.limit is not None else 'all'}")
+
+    selected_variant = get_variant(args.prompt_variant)
+    if selected_variant is None:
+        available = ", ".join(sorted(list_variants().keys()))
+        print(f"❌ Unknown prompt variant: {args.prompt_variant}")
+        print(f"Available variants: {available}")
+        return 1
+    # Canonicalize variant name (also resolves aliases)
+    args.prompt_variant = selected_variant.name
     print(f"Prompt variant: {args.prompt_variant}")
 
     is_dsbio = args.dataset in ("dsbio", "dsbio-sampled")
@@ -113,7 +123,11 @@ def run_eval(args) -> int:
 
     # Set default max_workers based on backend/provider
     if args.max_workers is None:
-        if args.backend == "litellm":
+        if is_dspredict:
+            # DSPredict runs are often constrained by a small executor pool.
+            # Defaulting to 1 avoids oversubscription that looks like a stall.
+            args.max_workers = int(os.environ.get("DSGYM_DSPREDICT_DEFAULT_MAX_WORKERS", "1"))
+        elif args.backend == "litellm":
             model_lower = args.model.lower()
             if model_lower.startswith("claude-") or model_lower.startswith("anthropic/"):
                 args.max_workers = 4
@@ -143,6 +157,16 @@ def run_eval(args) -> int:
             "output_dir": args.output_dir,
         }
 
+        manager_secret = os.environ.get("MANAGER_SECRET")
+        if manager_secret:
+            agent_config["manager_secret"] = manager_secret
+        elif is_dspredict and args.manager_url.startswith("http://localhost"):
+            print(
+                "⚠️ MANAGER_SECRET is not set in this shell. "
+                "Container deallocation/reset calls may fail with 403, causing "
+                "manager state to show no available containers even when executors are idle."
+            )
+
         # DSBio requires no GPU workloads, so skip Apple Silicon / Darwin platform
         # detection and let the manager allocate any available container.
         if is_dsbio:
@@ -150,30 +174,25 @@ def run_eval(args) -> int:
             # Fast-fail instead of waiting indefinitely for a container in dsbio runs.
             # This prevents apparent hangs when manager/container state is unhealthy.
             agent_config["allocation_timeout"] = 120.0 if args.allocation_timeout is None else args.allocation_timeout
+        elif is_dspredict:
+            # On localhost, prefer bounded waits by default so unhealthy manager
+            # state surfaces as an explicit timeout instead of an apparent sleep.
+            if args.allocation_timeout is None and args.manager_url.startswith("http://localhost"):
+                args.allocation_timeout = float(os.environ.get("DSGYM_DSPREDICT_LOCAL_ALLOCATION_TIMEOUT", "300"))
+                print(
+                    f"ℹ️ DSPredict local allocation timeout set to {args.allocation_timeout:.0f}s "
+                    "(override with --allocation-timeout)."
+                )
+            if args.allocation_timeout is not None:
+                agent_config["allocation_timeout"] = args.allocation_timeout
         elif args.allocation_timeout is not None:
             agent_config["allocation_timeout"] = args.allocation_timeout
 
         if args.backend == "litellm" and args.api_key:
             agent_config["api_key"] = args.api_key
 
-        try:
-            if "dspredict" in args.dataset:
-                agent = DSPredictReActAgent(
-                    backend=args.backend,
-                    model=args.model,
-                    submission_dir="./submissions",
-                    **agent_config
-                )
-            else:
-                agent = ReActDSAgent(
-                    backend=args.backend,
-                    model=args.model,
-                    **agent_config
-                )
-            print("✅ Agent initialized successfully")
-        except Exception as e:
-            print(f"❌ Failed to initialize agent: {e}")
-            return 1
+        # Placeholder for per-run DSPredict submission dir (will be set after run_name is determined)
+        dspredict_submission_dir = None
 
         # Load dataset
         print(f"📊 Loading {args.dataset} dataset...")
@@ -184,6 +203,7 @@ def run_eval(args) -> int:
 
             load_config = {"limit": args.limit}
             dataset_name = args.dataset
+            load_config["prompt_variant"] = args.prompt_variant
 
             if "dspredict" in dataset_name:
                 # Parse split: dspredict-easy → "easy", dspredict-sampled → "sampled"
@@ -236,9 +256,61 @@ def run_eval(args) -> int:
         )
 
         # Create evaluation config
-        run_name = args.run_name or f"{args.dataset}_{args.backend}_{args.model.replace('/', '_')}"
-        if (is_dsbio or is_dspredict) and not args.run_name:
-            run_name += "_dags" if args.dags else "_nodags"
+        if args.run_name:
+            run_name = args.run_name
+        else:
+            model_slug = re.sub(r"[^a-zA-Z0-9]+", "_", args.model).strip("_")
+            variant_slug = re.sub(r"[^a-zA-Z0-9]+", "_", args.prompt_variant).strip("_")
+            dag_slug = "dags" if args.dags else "nodags" if (is_dsbio or is_dspredict) else "std"
+            sample_slug = (
+                f"sample{args.sample_n}_seed{args.sample_seed}" if args.sample_n is not None else "all"
+            )
+            timestamp_slug = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+            run_name = (
+                f"{args.dataset}_{model_slug}_{args.backend}_{variant_slug}_"
+                f"{dag_slug}_{sample_slug}_{timestamp_slug}"
+            )
+        print(f"Run name: {run_name}")
+
+        # For DSPredict, create a per-run submission directory to isolate repeats.
+        # This prevents overwrites when running multiple repeats of the same condition.
+        if is_dspredict:
+            base_submission_dir = (
+                args.submission_dir
+                or os.environ.get("DSGYM_SUBMISSION_DIR")
+                or "./submissions"
+            )
+            # Per-run isolation: ${base_submission_dir}/${run_name}/container_XXX
+            dspredict_submission_dir = os.path.join(base_submission_dir, run_name)
+            os.makedirs(dspredict_submission_dir, exist_ok=True)
+            print(f"DSPredict per-run submission dir: {dspredict_submission_dir}")
+            print(f"  ℹ️  Each container will write to {dspredict_submission_dir}/container_NNN/")
+
+            # Now initialize the agent with the per-run directory
+            try:
+                agent = DSPredictReActAgent(
+                    backend=args.backend,
+                    model=args.model,
+                    submission_dir=dspredict_submission_dir,
+                    **agent_config
+                )
+                print("✅ DSPredict agent initialized with per-run submission isolation")
+            except Exception as e:
+                print(f"❌ Failed to initialize DSPredict agent: {e}")
+                return 1
+        else:
+            # Non-DSPredict agents don't use submission_dir
+            try:
+                agent = ReActDSAgent(
+                    backend=args.backend,
+                    model=args.model,
+                    **agent_config
+                )
+                print("✅ Agent initialized successfully")
+            except Exception as e:
+                print(f"❌ Failed to initialize agent: {e}")
+                return 1
+
         config = EvaluationConfig(
             model_name=args.model,
             backend_type=args.backend,
@@ -248,7 +320,22 @@ def run_eval(args) -> int:
             max_turns=args.max_turns,
             temperature=args.temperature,
             max_workers=args.max_workers,
-            extra_config={"generate_dags": args.dags} if is_dsbio or is_dspredict else {}
+            extra_config=(
+                {
+                    "generate_dags": args.dags,
+                    "prompt_variant": args.prompt_variant,
+                    "sample_n": args.sample_n,
+                    "sample_seed": args.sample_seed,
+                    "manager_url": args.manager_url,
+                    "submission_dir": dspredict_submission_dir,
+                }
+                if is_dspredict
+                else (
+                    {"generate_dags": args.dags, "prompt_variant": args.prompt_variant}
+                    if is_dsbio
+                    else {"prompt_variant": args.prompt_variant}
+                )
+            )
         )
 
         # Run evaluation

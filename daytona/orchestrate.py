@@ -1456,7 +1456,7 @@ def _do_fetch(sandbox, state: dict, args, verbose: bool = True) -> str:
         )
     resp = sandbox.process.exec(
         f"cd {shlex.quote(repo_dir)} && tar czf {remote_archive} "
-        f"evaluation_results $(test -d submissions && echo submissions)",
+        f"evaluation_results",
         timeout=900,
     )
     if resp.exit_code != 0:

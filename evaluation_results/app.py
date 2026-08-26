@@ -40,6 +40,7 @@ COLORS = {
     "dags_problem-decomposition": "#E91E63",
     "dags_data-quality-methods": "#FFC107",
     "dags_expert-agentic": "#00BCD4",
+    "dags_reasoning-only": "#3F51B5",
 }
 # Human-readable labels for known model IDs (extended on the fly by discovery)
 MODEL_LABELS = {
@@ -49,12 +50,23 @@ MODEL_LABELS = {
     "gpt-5.1":            "GPT-5.1",
     "gpt-4o-mini":        "GPT-4o Mini",
     "gpt-4o":             "GPT-4o",
+    "glm-5p2":            "GLM-5.2",
     "deepseek-v4-pro":    "DeepSeek V4 Pro",
     "kimi-k2p7-code":     "Kimi K2 Code",
     "Qwen3-Coder-480B":   "Qwen3 Coder 480B",
     "Qwen3-Coder-480B-A35B-Instruct":     "Qwen3-Coder 480B",
     "Qwen3-Coder-480B-A35B-Instruct-FP8": "Qwen3-Coder 480B FP8",
 }
+
+def _base_of(model_name: str) -> str:
+    """Return the base model token (a key of MODEL_LABELS) that a variant/seed
+    run name belongs to, e.g. 'gpt-4o-mini (adaptive) seed42' -> 'gpt-4o-mini'."""
+    for base in sorted(MODEL_LABELS, key=len, reverse=True):
+        # order by length desc so 'gpt-4o-mini' matches before 'gpt-4o'
+        if model_name == base or model_name.startswith(base):
+            return base
+    return model_name
+
 MEDAL_COLORS = {"gold": "#FFD700", "silver": "#C0C0C0", "bronze": "#CD7F32", "none": "#DDDDDD"}
 MEDAL_TYPES = ["gold", "silver", "bronze"]
 MEDAL_TYPES_FULL = ["gold", "silver", "bronze", "none"]
@@ -79,9 +91,75 @@ def _model_color(model: str) -> str:
     idx = int(hashlib.md5(model.encode()).hexdigest(), 16) % len(_COLOR_PALETTE)
     return _COLOR_PALETTE[idx]
 
+# ── Shared slug parsing for per-task files ────────────────────────────────────
+# DAG/nodags mode → parenthetical label. "dags" (bare) shows no suffix.
+_DAG_MODE_LABELS = {
+    "dags":                          None,            # plain dags: no parens
+    "dags_adaptive-revision":        "adaptive",
+    "dags_vanilla-no-implementation":"vanilla",
+    "dags_problem-decomposition":    "problem decomposition",
+    "dags_data-quality-methods":     "data quality",
+    "dags_expert-agentic":           "expert agentic",
+    "dags_reasoning-only":           "reasoning-only",
+    "nodags":                        "nodags",
+}
+
+def _slug_to_name(raw: str) -> str:
+    """Turn an underscore slug into a display name (with GPT decimal fix)."""
+    name = raw.replace("_", "-")
+    # Only fix GPT decimal versions: gpt-5-1 → gpt-5.1, gpt-4-0 → gpt-4.0
+    name = re.sub(r'\bgpt-(\d+)-(\d+)\b', r'gpt-\1.\2', name)
+    return name
+
+def _parse_dag_slug(slug: str):
+    """
+    Parse a per-task slug into (base, mode, seed).
+      base  : raw slug prefix (model portion), e.g. 'gpt_4o_mini'
+      mode  : token from _DAG_MODE_LABELS, e.g. 'dags_adaptive-revision', 'nodags'
+      seed  : seed string if present (e.g. '42'), else None
+    Returns None if the slug isn't a recognised DAG/nodags form.
+    Handles an optional trailing '_seed<N>' marker.
+    """
+    seed = None
+    s = slug
+    m = re.search(r'_seed\d+$', s)
+    if m:
+        seed = s[m.start() + len("_seed"):]
+        s = s[: m.start()]
+    for mode in _DAG_MODE_LABELS:
+        suffix = f"_{mode}"
+        if s.endswith(suffix):
+            return s[: -len(suffix)], mode, seed
+    return None
+
+def _dag_model_label(base: str, mode: str, seed) -> str:
+    """Build the display model name from a parsed slug, e.g. 'gpt-4o-mini (adaptive) seed42'."""
+    name = _slug_to_name(base)
+    label = _DAG_MODE_LABELS.get(mode)
+    if label:
+        name += f" ({label})"
+    if seed is not None:
+        name += f" seed{seed}"
+    return name
+
+def _is_collected_dag_slug(slug: str) -> bool:
+    """
+    Whether a per-task slug should be aggregated. Preserves prior behaviour:
+    collects all DAG forms (with or without a seed) plus nodags WITH a seed,
+    but leaves plain (non-seed) per-task nodags files out.
+    """
+    parsed = _parse_dag_slug(slug)
+    if parsed is None:
+        return False
+    _base, mode, seed = parsed
+    if mode == "nodags" and seed is None:
+        return False
+    return True
+
 # ── Auto-discovery: results files ─────────────────────────────────────────────
 _KNOWN_MODES     = ["dags_vanilla-no-implementation", "dags_adaptive-revision",
                     "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
+                    "dags_reasoning-only",
                     "dags", "nodags"]
 _KNOWN_PROVIDERS = ["fireworks_ai_", "fireworks_Qwen_", "fireworks_", "openai_"]
 
@@ -173,44 +251,20 @@ def _discover_dag_model_configs():
         if not m:
             continue
         slug = m.group(1)
-        # Only collect DAG-related slugs
-        if (slug.endswith("_dags_adaptive-revision")
-                or slug.endswith("_dags_vanilla-no-implementation")
-                or slug.endswith("_dags_problem-decomposition")
-                or slug.endswith("_dags_data-quality-methods")
-                or slug.endswith("_dags_expert-agentic")
-                or slug.endswith("_dags")):
+        # Only collect DAG-related slugs (incl. seed-tagged variants) and seed-tagged nodags.
+        if _is_collected_dag_slug(slug):
             slug_set.add(slug)
-
-    def _slug_to_name(raw: str) -> str:
-        name = raw.replace("_", "-")
-        # Only fix GPT decimal versions: gpt-5-1 → gpt-5.1, gpt-4-0 → gpt-4.0
-        name = re.sub(r'\bgpt-(\d+)-(\d+)\b', r'gpt-\1.\2', name)
-        return name
 
     configs: dict[str, dict] = {}
     for slug in sorted(slug_set):
-        if slug.endswith("_dags_adaptive-revision"):
-            base = _slug_to_name(slug[: -len("_dags_adaptive-revision")])
-            model_name = f"{base} (adaptive)"
-        elif slug.endswith("_dags_vanilla-no-implementation"):
-            base = _slug_to_name(slug[: -len("_dags_vanilla-no-implementation")])
-            model_name = f"{base} (vanilla)"
-        elif slug.endswith("_dags_problem-decomposition"):
-            base = _slug_to_name(slug[: -len("_dags_problem-decomposition")])
-            model_name = f"{base} (problem decomposition)"
-        elif slug.endswith("_dags_data-quality-methods"):
-            base = _slug_to_name(slug[: -len("_dags_data-quality-methods")])
-            model_name = f"{base} (data quality)"
-        elif slug.endswith("_dags_expert-agentic"):
-            base = _slug_to_name(slug[: -len("_dags_expert-agentic")])
-            model_name = f"{base} (expert agentic)"
-        else:
-            base = _slug_to_name(slug[: -len("_dags")])
-            model_name = base
+        parsed = _parse_dag_slug(slug)
+        if parsed is None:
+            continue
+        base, mode, seed = parsed
+        model_name = _dag_model_label(base, mode, seed)
         configs[model_name] = {
             "suffix": f"_{slug}.json",
-            "color":  _model_color(base),   # colour keyed on base name so adaptive shares colour
+            "color":  _model_color(base),   # colour keyed on base name so variants share colour
         }
     return configs
 
@@ -242,11 +296,7 @@ def _discover_per_task_runs(existing_dp, existing_dp_hard, existing_bio):
         m = re.match(r'^.+?_\d+_(.+)$', fpath.stem)
         if not m: continue
         slug = m.group(1)
-        if (slug.endswith("_dags_adaptive-revision")
-                or slug.endswith("_dags_problem-decomposition")
-                or slug.endswith("_dags_data-quality-methods")
-                or slug.endswith("_dags_expert-agentic")
-                or slug.endswith("_dags")):
+        if _is_collected_dag_slug(slug):
             slug_files.setdefault(slug, []).append(fpath)
 
     dp_extra, dp_hard_extra, bio_extra = {}, {}, {}
@@ -259,18 +309,10 @@ def _discover_per_task_runs(existing_dp, existing_dp_hard, existing_bio):
         )
         if model_name is None:
             continue
-        if slug.endswith("_dags_adaptive-revision"):
-            mode = "dags_adaptive-revision"
-        elif slug.endswith("_dags_vanilla-no-implementation"):
-            mode = "dags_vanilla-no-implementation"
-        elif slug.endswith("_dags_problem-decomposition"):
-            mode = "dags_problem-decomposition"
-        elif slug.endswith("_dags_data-quality-methods"):
-            mode = "dags_data-quality-methods"
-        elif slug.endswith("_dags_expert-agentic"):
-            mode = "dags_expert-agentic"
-        else:
-            mode = "dags"
+        parsed = _parse_dag_slug(slug)
+        if parsed is None:
+            continue
+        mode = parsed[1]
         key  = (model_name, mode)
 
         # Skip if already covered by a results file in ALL three buckets
@@ -300,6 +342,22 @@ _dp_ex, _dp_hard_ex, _bio_ex = _discover_per_task_runs(DP_RUNS, DP_HARD_RUNS, BI
 DP_RUNS.update(_dp_ex)
 DP_HARD_RUNS.update(_dp_hard_ex)
 BIO_RUNS.update(_bio_ex)
+
+# ── gpt-4o-mini plain dags/nodags: back them with the real per-task seed runs ──
+# The bundled dspredict-hard *_results.json for gpt-4o-mini are partial stubs
+# (many rows only carry reports/leaderboard_stats with no submission data), so
+# their trajectories aren't readable. The full per-comp traces live in the
+# per-task seed files (gpt_4o_mini_dags_seed42.json etc.). Point the plain keys
+# at those files so the traces are readable in the app.
+for _model, _mode, _seed_pat in [
+    ("gpt-4o-mini", "dags",   "*_gpt_4o_mini_dags_seed42.json"),
+    ("gpt-4o-mini", "nodags", "*_gpt_4o_mini_nodags_seed42.json"),
+]:
+    _key = (_model, _mode)
+    if _key in DP_HARD_RUNS:
+        _seed_files = sorted(RESULTS_DIR.glob(_seed_pat))
+        if _seed_files:
+            DP_HARD_RUNS[_key] = _seed_files
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Data loading
@@ -636,39 +694,19 @@ def load_drift_records():
     seen: set[tuple] = set()
     slug_re = re.compile(r"^(.+?)_(\d+)_(.+)$")
 
-    def _slug_to_name(raw: str) -> str:
-        name = raw.replace("_", "-")
-        name = re.sub(r"\bgpt-(\d+)-(\d+)\b", r"gpt-\1.\2", name)
-        return name
-
     for fpath in sorted(RESULTS_DIR.iterdir()):
         if fpath.suffix != ".json": continue
         m = slug_re.match(fpath.stem)
         if not m: continue
         comp, slug = m.group(1), m.group(3)
 
-        mode = None
-        slug_base = slug
-        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation",
-                          "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
-                          "dags", "nodags"]:
-            if slug.endswith(f"_{candidate}"):
-                mode = candidate
-                slug_base = slug[: -len(f"_{candidate}")]
-                break
-        if mode is None: continue
+        parsed = _parse_dag_slug(slug)
+        if parsed is None:
+            continue
+        slug_base, mode, seed = parsed
 
         base_model = _slug_to_name(slug_base)
-        suffix = {
-            "dags_adaptive-revision":      " (adaptive)",
-            "dags_vanilla-no-implementation": " (vanilla)",
-            "dags_problem-decomposition":   " (problem decomposition)",
-            "dags_data-quality-methods":    " (data quality)",
-            "dags_expert-agentic":          " (expert agentic)",
-            "nodags": " (nodags)",
-            "dags":   "",
-        }[mode]
-        model_full = f"{base_model}{suffix}"
+        model_full = _dag_model_label(slug_base, mode, seed)
 
         key = (model_full, comp)
         if key in seen: continue
@@ -794,11 +832,6 @@ def load_failure_analysis_records() -> list:
     seen:    set[tuple] = set()
     slug_re = re.compile(r"^(.+?)_(\d+)_(.+)$")
 
-    def _slug_to_name(raw: str) -> str:
-        name = raw.replace("_", "-")
-        name = re.sub(r"\bgpt-(\d+)-(\d+)\b", r"gpt-\1.\2", name)
-        return name
-
     for fpath in sorted(RESULTS_DIR.iterdir()):
         if fpath.suffix != ".json":
             continue
@@ -807,29 +840,13 @@ def load_failure_analysis_records() -> list:
             continue
         comp, slug = m.group(1), m.group(3)
 
-        mode      = None
-        slug_base = slug
-        for candidate in ["dags_adaptive-revision", "dags_vanilla-no-implementation",
-                          "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
-                          "dags", "nodags"]:
-            if slug.endswith(f"_{candidate}"):
-                mode      = candidate
-                slug_base = slug[: -len(f"_{candidate}")]
-                break
-        if mode is None:
+        parsed = _parse_dag_slug(slug)
+        if parsed is None:
             continue
+        slug_base, mode, seed = parsed
 
         base_model = _slug_to_name(slug_base)
-        suffix     = {
-            "dags_adaptive-revision":         " (adaptive)",
-            "dags_vanilla-no-implementation": " (vanilla)",
-            "dags_problem-decomposition":     " (problem decomposition)",
-            "dags_data-quality-methods":      " (data quality)",
-            "dags_expert-agentic":            " (expert agentic)",
-            "nodags": " (nodags)",
-            "dags":   "",
-        }[mode]
-        model_full = f"{base_model}{suffix}"
+        model_full = _dag_model_label(slug_base, mode, seed)
 
         key = (model_full, comp)
         if key in seen:
@@ -843,8 +860,9 @@ def load_failure_analysis_records() -> list:
             traj = item.get("trajectory", [])
             if not traj:
                 continue
-            status = ((item.get("metrics") or {}).get("kaggle_submission") or {}) \
-                         .get("details", {}).get("status", "") or ""
+            ks      = (item.get("metrics") or {}).get("kaggle_submission") or {}
+            details = ks.get("details") or {}
+            status  = details.get("status", "") if isinstance(details, dict) else ""
             outcome = ("complete" if "COMPLETE" in status else
                        "error"    if "ERROR"    in status else "no_submit")
             stats = _analyze_trajectory(traj)
@@ -854,6 +872,15 @@ def load_failure_analysis_records() -> list:
                 "mode":       mode,
                 "comp":       comp,
                 "outcome":    outcome,
+                "score":      ks.get("score"),
+                "public_medal":   details.get("public_medal","none") if isinstance(details,dict) else "none",
+                "private_medal":  details.get("private_medal","none") if isinstance(details,dict) else "none",
+                "pub_percentile": details.get("public_percentile") if isinstance(details,dict) else None,
+                "priv_percentile":details.get("private_percentile") if isinstance(details,dict) else None,
+                "pub_above_med":  details.get("public_above_median") if isinstance(details,dict) else None,
+                "pub_rank":       details.get("public_rank") if isinstance(details,dict) else None,
+                "priv_above_med": details.get("private_above_median") if isinstance(details,dict) else None,
+                "priv_rank":      details.get("private_rank") if isinstance(details,dict) else None,
                 "trajectory": traj,
                 **stats,
             })
@@ -871,7 +898,8 @@ def extract_traj_dags(all_data):
     for (model, mode), data in all_data.items():
         #TODO: claude hardcoded this like this, needs to be updated every time or I need to rewrite it
         if mode not in ("dags", "dags_adaptive-revision", "dags_vanilla-no-implementation",
-                        "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic"): continue
+                        "dags_problem-decomposition", "dags_data-quality-methods", "dags_expert-agentic",
+                        "dags_reasoning-only"): continue
         for row in data:
             dags = _extract_embedded_dags(row.get("trajectory", []))
             ch   = row.get("challenge") or ""
@@ -1175,8 +1203,8 @@ def page_dspredict(dp_data, dp_hard_data):
     st.header("🏆 DSPredict Analysis")
     apply_style()
 
-    tab_sampled, tab_hard, tab_medals, tab_tokens, tab_challenge = st.tabs(
-        ["Sampled","Hard","Medal Breakdown","Token Usage","Per-Challenge"])
+    tab_sampled, tab_hard, tab_medals, tab_tokens, tab_challenge, tab_table = st.tabs(
+        ["Sampled","Hard","Medal Breakdown","Token Usage","Per-Challenge","Results Table"])
 
     inv = {v:k for k,v in MODEL_LABELS.items()}
 
@@ -1203,7 +1231,8 @@ def page_dspredict(dp_data, dp_hard_data):
     with tab_sampled:
         sampled_models = sorted({m for (m,_) in dp_data})
         sel = st.multiselect("Models",[MODEL_LABELS.get(m,m) for m in sampled_models],
-            default=[MODEL_LABELS.get(m,m) for m in sampled_models], key="dp_samp_sel")
+            default=None,#[MODEL_LABELS.get(m,m) for m in sampled_models], 
+                             key="dp_samp_sel")
         sel_m = [inv.get(l,l) for l in sel]
         if not sel_m: st.info("Select at least one model."); return
 
@@ -1386,6 +1415,25 @@ def page_dspredict(dp_data, dp_hard_data):
         fig.legend(handles=handles, loc="upper right")
         plt.tight_layout(); fig_to_st(fig)
 
+        # ── Avg Total Turns (Hard) ───────────────────────────────────────────
+        st.subheader("🔄 Avg Total Turns (Hard)")
+        tfig, tax = plt.subplots(figsize=(max(14, len(rk)*1.6), 6))
+        theights = [_turns(filtered.get(k, [])) for k in rk]
+        tb = tax.bar(xp, theights, width=bw,
+                     color=[COLORS.get(md, "#9C27B0") for _, md in rk], edgecolor="white")
+        tax.set_xticks(xp); tax.set_xticklabels(rlab, rotation=45, ha="right")
+        tax.set_ylabel("Avg Total Turns"); tax.set_title("Average Total Turns per Run — DSPredict Hard")
+        for bar, h in zip(tb, theights):
+            if h > 0.5:
+                tax.text(bar.get_x()+bar.get_width()/2, h+0.3, f"{h:.1f}",
+                         ha="center", va="bottom", fontsize=10)
+        tax.legend(handles=[mpatches.Patch(facecolor=COLORS.get(md, "#9C27B0"), label=md)
+                            for md in ["dags", "nodags", "dags_adaptive-revision",
+                                       "dags_vanilla-no-implementation", "dags_problem-decomposition",
+                                       "dags_data-quality-methods", "dags_expert-agentic"]],
+                   loc="upper right")
+        plt.tight_layout(); fig_to_st(tfig)
+
         # ── Status breakdown for Hard ────────────────────────────────────────
         st.subheader("📋 Submission Status Breakdown (Hard)")
         hard_status = []
@@ -1424,50 +1472,76 @@ def page_dspredict(dp_data, dp_hard_data):
             ax.legend(loc="upper right")
             plt.tight_layout(); fig_to_st(fig)
 
-    # ── Medal Breakdown ──
+    # ── Medal Breakdown (configurable) ──
     with tab_medals:
-        st.subheader("Medal Type Breakdown — All Runs")
-        all_rk    = list(dp_data.keys())+[k for k in dp_hard_data if k not in dp_data]
-        all_rd    = {**dp_data,**dp_hard_data}
-        rlab_full = [f"{MODEL_LABELS.get(m,m)}\n{md}" for m,md in all_rk]
-        xp=np.arange(len(all_rk)); bw=max(0.4,min(0.8,6/max(1,len(all_rk))))
+        st.subheader("Medal Type Breakdown — Public vs Private LB")
+        st.caption("Pick the dataset and models — the figure scales to fit the selection.")
 
-        fig,axes=plt.subplots(2,2,figsize=(max(28, len(all_rk)*2.8), 20))
-        fig.suptitle("DSPredict: Medal Type Breakdown — Public vs Private LB",fontsize=16,fontweight="bold")
-        for row_i,(lb_key,lb_label) in enumerate([("public_medal","Public LB"),("private_medal","Private LB")]):
-            ax=axes[row_i,0]; bottoms=np.zeros(len(all_rk))
-            for mtype in MEDAL_TYPES:
-                heights=[sum(1 for r in [r for r in all_rd.get(k,[]) if "COMPLETE" in str(r.get("status",""))]
-                             if r.get(lb_key)==mtype) for k in all_rk]
-                bars=ax.bar(xp,heights,bottom=bottoms,width=bw,color=MEDAL_COLORS[mtype],
-                            label=mtype.capitalize(),edgecolor="white")
-                for bar,h in zip(bars,heights):
-                    if h>0: ax.text(bar.get_x()+bar.get_width()/2,bar.get_y()+h/2,str(int(h)),
-                                    ha="center",va="center",fontsize=12,fontweight="bold")
-                bottoms+=np.array(heights)
-            ax.set_xticks(xp); ax.set_xticklabels(rlab_full,fontsize=11,rotation=45, ha="right")
-            ax.set_ylabel("Number of Medals"); ax.set_title(f"Medal Count — {lb_label}")
-            ax.legend(loc="upper right")
+        all_rk = list(dp_data.keys())+[k for k in dp_hard_data if k not in dp_data]
+        all_rd = {**dp_data, **dp_hard_data}
 
-            ax=axes[row_i,1]; bottoms_pct=np.zeros(len(all_rk))
-            for mtype in MEDAL_TYPES_FULL:
-                heights_pct=[]
-                for k in all_rk:
-                    sub=[r for r in all_rd.get(k,[]) if "COMPLETE" in str(r.get("status",""))]
-                    heights_pct.append(100*sum(1 for r in sub if (r.get(lb_key) or "none")==mtype)/max(1,len(sub)))
-                bars=ax.bar(xp,heights_pct,bottom=bottoms_pct,width=bw,
-                            color=MEDAL_COLORS[mtype],label=MEDAL_LABELS_FULL[mtype],edgecolor="white")
-                for bar,h in zip(bars,heights_pct):
-                    if h>4: ax.text(bar.get_x()+bar.get_width()/2,bar.get_y()+h/2,
-                                    f"{h:.0f}%",ha="center",va="center",fontsize=11,fontweight="bold")
-                bottoms_pct+=np.array(heights_pct)
-            ax.set_xticks(xp); ax.set_xticklabels(rlab_full,fontsize=11,rotation=45, ha="right")
-            ax.set_ylabel("% of Submitted Tasks"); ax.set_title(f"Medal Share — {lb_label}")
-            ax.legend(loc="upper right"); ax.set_ylim(0,108)
-            for xi,k in enumerate(all_rk):
-                sub=[r for r in all_rd.get(k,[]) if "COMPLETE" in str(r.get("status",""))]
-                ax.text(xi,-8,f"n={len(sub)}",ha="center",va="top",fontsize=10,color="dimgray")
-        plt.tight_layout(); fig_to_st(fig)
+        med_ds = st.radio("Dataset", ["Sampled","Hard","All"], horizontal=True, key="dp_medal_ds")
+        if med_ds == "Sampled":
+            pool_keys = list(dp_data.keys())
+        elif med_ds == "Hard":
+            pool_keys = list(dp_hard_data.keys())
+        else:
+            pool_keys = all_rk
+
+        med_models = sorted({m for (m, _) in pool_keys})
+        sel_md_lbl = st.multiselect(
+            "Models", [MODEL_LABELS.get(m, m) for m in med_models],
+            default=[MODEL_LABELS.get(m, m) for m in med_models], key="dp_medal_sel")
+        sel_md = [inv.get(l, l) for l in sel_md_lbl]
+
+        rk = [k for k in pool_keys if k[0] in sel_md]
+        if not rk:
+            st.info("Select at least one model above.")
+        else:
+            rd = {k: all_rd[k] for k in rk}
+            rlab_full = [f"{MODEL_LABELS.get(m, m)}\n{md}" for m, md in rk]
+            xp = np.arange(len(rk)); bw = max(0.4, min(0.8, 6/max(1, len(rk))))
+
+            fig, axes = plt.subplots(2, 2, figsize=(max(22, len(rk)*2.2), 15))
+            fig.suptitle(f"DSPredict: Medal Type Breakdown — {med_ds} ({'Public vs Private LB'})",
+                         fontsize=15, fontweight="bold")
+            for row_i, (lb_key, lb_label) in enumerate([("public_medal", "Public LB"),
+                                                        ("private_medal", "Private LB")]):
+                ax = axes[row_i, 0]; bottoms = np.zeros(len(rk))
+                for mtype in MEDAL_TYPES:
+                    heights = [sum(1 for r in [r for r in rd.get(k, []) if "COMPLETE" in str(r.get("status", ""))]
+                                   if r.get(lb_key) == mtype) for k in rk]
+                    bars = ax.bar(xp, heights, bottom=bottoms, width=bw, color=MEDAL_COLORS[mtype],
+                                  label=mtype.capitalize(), edgecolor="white")
+                    for bar, h in zip(bars, heights):
+                        if h > 0:
+                            ax.text(bar.get_x()+bar.get_width()/2, bar.get_y()+h/2, str(int(h)),
+                                    ha="center", va="center", fontsize=11, fontweight="bold")
+                    bottoms += np.array(heights)
+                ax.set_xticks(xp); ax.set_xticklabels(rlab_full, fontsize=10, rotation=45, ha="right")
+                ax.set_ylabel("Number of Medals"); ax.set_title(f"Medal Count — {lb_label}")
+                ax.legend(loc="upper right")
+
+                ax = axes[row_i, 1]; bottoms_pct = np.zeros(len(rk))
+                for mtype in MEDAL_TYPES_FULL:
+                    heights_pct = []
+                    for k in rk:
+                        sub = [r for r in rd.get(k, []) if "COMPLETE" in str(r.get("status", ""))]
+                        heights_pct.append(100*sum(1 for r in sub if (r.get(lb_key) or "none") == mtype)/max(1, len(sub)))
+                    bars = ax.bar(xp, heights_pct, bottom=bottoms_pct, width=bw,
+                                  color=MEDAL_COLORS[mtype], label=MEDAL_LABELS_FULL[mtype], edgecolor="white")
+                    for bar, h in zip(bars, heights_pct):
+                        if h > 4:
+                            ax.text(bar.get_x()+bar.get_width()/2, bar.get_y()+h/2,
+                                    f"{h:.0f}%", ha="center", va="center", fontsize=10, fontweight="bold")
+                    bottoms_pct += np.array(heights_pct)
+                ax.set_xticks(xp); ax.set_xticklabels(rlab_full, fontsize=10, rotation=45, ha="right")
+                ax.set_ylabel("% of Submitted Tasks"); ax.set_title(f"Medal Share — {lb_label}")
+                ax.legend(loc="upper right"); ax.set_ylim(0, 108)
+                for xi, k in enumerate(rk):
+                    sub = [r for r in rd.get(k, []) if "COMPLETE" in str(r.get("status", ""))]
+                    ax.text(xi, -8, f"n={len(sub)}", ha="center", va="top", fontsize=10, color="dimgray")
+            plt.tight_layout(); fig_to_st(fig)
 
     # ── Tokens ──
     with tab_tokens:
@@ -1498,9 +1572,9 @@ def page_dspredict(dp_data, dp_hard_data):
 
             bar_specs = [
                 ("Input",  [_avg_tok("input_tokens",  all_rd2.get(k, [])) for k in sel_rk2], "#2196F3"),
-                ("Output", [_avg_tok("output_tokens", all_rd2.get(k, [])) for k in sel_rk2], "#4CAF50"),
-                ("Total",  [_avg_tok("total_tokens",  all_rd2.get(k, [])) for k in sel_rk2], "#FF9800"),
-                ("DAG",    [_avg_dag_tok(all_rd2.get(k, [])) for k in sel_rk2],              "#9C27B0"),
+                # ("Output", [_avg_tok("output_tokens", all_rd2.get(k, [])) for k in sel_rk2], "#4CAF50"),
+                # ("Total",  [_avg_tok("total_tokens",  all_rd2.get(k, [])) for k in sel_rk2], "#FF9800"),
+                # ("DAG",    [_avg_dag_tok(all_rd2.get(k, [])) for k in sel_rk2],              "#9C27B0"),
             ]
             n_runs = len(sel_rk2)
             n_bars = len(bar_specs)
@@ -1543,6 +1617,74 @@ def page_dspredict(dp_data, dp_hard_data):
             pivot=combined.pivot_table(index="challenge",columns=["model","mode"],values=met,aggfunc="first")
             if met!="public_medal": pivot=pivot.round(2)
             st.dataframe(pivot,use_container_width=True)
+
+    # ── Results Table (one row per run) ──
+    with tab_table:
+        st.subheader("Results Summary — one row per run")
+        st.caption("Filter by model, then export the table to CSV if needed.")
+
+        table_models = sorted({_base_of(m) for (m, _) in list(dp_data.keys()) + list(dp_hard_data.keys())})
+        sel_tbl_lbl = st.multiselect(
+            "Models", [MODEL_LABELS.get(b, b) for b in table_models],
+            default=[MODEL_LABELS.get(b, b) for b in table_models], key="dp_table_sel")
+        sel_tbl_models = {inv.get(l, l) for l in sel_tbl_lbl}
+
+        def _cov_t(d):
+            sub = [r for r in d if "COMPLETE" in str(r.get("status", ""))]
+            return 100 * len(sub) / max(1, len(d))
+        def _abm_t(d, key):
+            v = [r[key] for r in d if r.get(key) is not None]
+            return 100 * sum(v) / len(v) if v else 0
+        def _abm54_t(d, key):
+            v = [r[key] for r in d if r.get(key) is not None]
+            return 100 * sum(v) / N_PROBLEMS if v else 0
+        def _medal_t(d, key):
+            sub = [r for r in d if "COMPLETE" in str(r.get("status", ""))]
+            med = [r for r in sub if r.get(key) not in (None, "none")]
+            return 100 * len(med) / max(1, len(d))
+        def _pct_t(d, key):
+            v = [r[key] for r in d if r.get(key) is not None]
+            return float(np.mean(v)) if v else 0.0
+        def _out_t(d):
+            v = [r["output_tokens"] for r in d if r.get("output_tokens") is not None]
+            return float(np.mean(v)) / 1000 if v else 0.0
+
+        tbl_src = {**dp_data, **dp_hard_data}
+        tbl_src = {k: v for k, v in tbl_src.items() if _base_of(k[0]) in sel_tbl_models}
+        tbl_rows = []
+        for (m, mode), data in sorted(tbl_src.items()):
+            base = _base_of(m)
+            tbl_rows.append({
+                "Model":       MODEL_LABELS.get(base, base),
+                "Run":         m,
+                "Mode":        mode,
+                "N":           len(data),
+                "Coverage %":  round(_cov_t(data), 1),
+                "AbM pub %":   round(_abm_t(data, "pub_above_med"), 1),
+                "AbM pub/54":  round(_abm54_t(data, "pub_above_med"), 1),
+                # "AbM priv %":  round(_abm_t(data, "priv_above_med"), 1),
+                # "AbM priv/54": round(_abm54_t(data, "priv_above_med"), 1),
+                "Medal pub %": round(_medal_t(data, "public_medal"), 1),
+                "Medal priv %":round(_medal_t(data, "private_medal"), 1),
+                "Pub pct":     round(_pct_t(data, "pub_percentile"), 2),
+                "Priv pct":    round(_pct_t(data, "priv_percentile"), 2),
+                "Out toks (K)":round(_out_t(data), 1),
+            })
+        if not tbl_rows:
+            st.info("Select at least one model above.")
+        else:
+            tdf = pd.DataFrame(tbl_rows)
+            column_config = {c: st.column_config.NumberColumn(c, format="%.2f") for c in tdf.columns
+                             if c not in ("Model", "Run", "Mode")}
+            st.dataframe(tdf, use_container_width=True, hide_index=True,
+                         column_config=column_config)
+            st.download_button(
+                "⬇️ Export to CSV",
+                data=tdf.to_csv(index=False).encode("utf-8"),
+                file_name="dspredict_results_summary.csv",
+                mime="text/csv",
+                key="dp_table_csv",
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3080,98 +3222,6 @@ def page_dag_consistency(records):
                                         else:
                                             st.code(blk[:600])
 
-            # ── Side-by-side comparison ───────────────────────────────────────
-            st.markdown("---")
-            st.markdown("#### Side-by-side run comparison")
-            st.caption(
-                "Pick both models first — the competition list then shows **only runs where the two models "
-                "had different outcomes**, with the outcome of each side shown in the label."
-            )
-
-            all_cmp_models = sorted({r["model"] for r in fail_all if r["model"] in sel_fm})
-            if len(all_cmp_models) < 1:
-                st.info("Need at least one model loaded.")
-            else:
-                cc1, cc2 = st.columns(2)
-                cmp_m_a = cc1.selectbox("Left model",  all_cmp_models, key="cmp_m_a", index=0)
-                cmp_m_b = cc2.selectbox("Right model", all_cmp_models, key="cmp_m_b",
-                                        index=min(1, len(all_cmp_models)-1))
-
-                # Build outcome lookup: (model, comp) → outcome
-                outcome_by = {(r["model"], r["comp"]): r["outcome"] for r in fail_all}
-
-                # Find competitions that both models have run
-                comps_a = {r["comp"] for r in fail_all if r["model"] == cmp_m_a}
-                comps_b = {r["comp"] for r in fail_all if r["model"] == cmp_m_b}
-                shared  = comps_a & comps_b
-
-                outcome_icons = {"complete": "✅", "error": "⚠️", "no_submit": "❌"}
-
-                def _icon(m, c):
-                    return outcome_icons.get(outcome_by.get((m, c), ""), "—")
-
-                # Partition into "outcomes differ" vs "same outcome"
-                differ = sorted(c for c in shared
-                                if outcome_by.get((cmp_m_a, c)) != outcome_by.get((cmp_m_b, c)))
-                same   = sorted(c for c in shared
-                                if outcome_by.get((cmp_m_a, c)) == outcome_by.get((cmp_m_b, c)))
-
-                show_same = st.checkbox("Also show runs where both had the same outcome", key="cmp_show_same")
-                comps_pool = differ + (same if show_same else [])
-
-                if not comps_pool:
-                    st.info("No shared competitions found for these two models." if not shared else
-                            "Both models had the same outcome on all shared competitions — "
-                            "tick 'Also show same outcome' to browse them.")
-                else:
-                    # Build labelled choices: outcome_a vs outcome_b  competition
-                    choices_cmp = [
-                        f"{_icon(cmp_m_a, c)} vs {_icon(cmp_m_b, c)}  {c}"
-                        for c in comps_pool
-                    ]
-                    cmp_choice = st.selectbox(
-                        f"Competition ({len(differ)} differ, {len(same)} same)",
-                        choices_cmp, key="cmp_comp"
-                    )
-                    cmp_comp = cmp_choice.split("  ", 1)[1] if "  " in cmp_choice else cmp_choice
-
-                    rec_a = next((r for r in fail_all if r["model"] == cmp_m_a and r["comp"] == cmp_comp), None)
-                    rec_b = next((r for r in fail_all if r["model"] == cmp_m_b and r["comp"] == cmp_comp), None)
-
-                    h1, h2 = st.columns(2)
-                    oa = outcome_by.get((cmp_m_a, cmp_comp), "—")
-                    ob = outcome_by.get((cmp_m_b, cmp_comp), "—")
-                    h1.markdown(f"**{cmp_m_a}** — {outcome_icons.get(oa,'')} `{oa}`")
-                    h2.markdown(f"**{cmp_m_b}** — {outcome_icons.get(ob,'')} `{ob}`")
-
-                    n_cmp = st.slider("Show last N turns (each side)", 1, 50, 6, key="cmp_n_turns")
-
-                    def _render_turns(rec, container):
-                        if rec is None:
-                            container.info("No run found.")
-                            return
-                        traj = rec.get("trajectory", [])
-                        with container:
-                            for i, turn in enumerate(traj[-n_cmp:]):
-                                if not isinstance(turn, dict): continue
-                                # Reuse the full-featured renderer (reasoning, code,
-                                # output/error, DAGs) instead of the stripped-down
-                                # excerpt so the comparison shows everything, not
-                                # just the natural-language reasoning/output.
-                                _render_turn(
-                                    i, turn,
-                                    show_dags=True, show_code=True,
-                                    show_results=True, show_reasoning=True,
-                                    search_term="",
-                                )
-
-                    col_a, col_b = st.columns(2)
-                    _render_turns(rec_a, col_a)
-                    _render_turns(rec_b, col_b)
-
-
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # PAGE: Cross-Benchmark
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3466,6 +3516,146 @@ def page_trace_viewer(dp_data, dp_hard_data, bio_data):
     sel_run_key = all_keys[run_labels.index(sel_run_label)]
     run_data = src.get(sel_run_key, [])
 
+    # ── Side-by-side run comparison (independent of the single-run selection) ─
+    # Compare two models' traces for the same challenge side by side.
+    # Uses the disk-cached failure-analysis records — no embeddings involved.
+    st.markdown("---")
+    st.markdown("#### 🔀 Side-by-side run comparison")
+    st.caption(
+        "Pick two models first — the challenge list then shows **only runs where the two models "
+        "had different outcomes**, with the outcome of each side shown in the label."
+    )
+
+    with st.spinner("Loading comparison records…"):
+        cmp_fail = load_failure_analysis_records()
+
+    all_cmp_models = sorted({r["model"] for r in cmp_fail})
+    if all_cmp_models:
+        sel_cmp_models = st.multiselect(
+            "Models to compare", all_cmp_models, default=all_cmp_models, key="cmp_models"
+        )
+    else:
+        st.info("Need at least one model loaded.")
+        sel_cmp_models = []
+
+    if len(sel_cmp_models) < 1:
+        st.info("Select at least two models to compare.")
+    else:
+        cc1, cc2 = st.columns(2)
+        cmp_m_a = cc1.selectbox("Left model",  sel_cmp_models, key="cmp_m_a", index=0)
+        cmp_m_b = cc2.selectbox("Right model", sel_cmp_models, key="cmp_m_b",
+                                index=min(1, len(sel_cmp_models)-1))
+
+        # Outcome lookup: (model, comp) → outcome
+        outcome_by = {(r["model"], r["comp"]): r["outcome"] for r in cmp_fail}
+
+        comps_a = {r["comp"] for r in cmp_fail if r["model"] == cmp_m_a}
+        comps_b = {r["comp"] for r in cmp_fail if r["model"] == cmp_m_b}
+        shared  = comps_a & comps_b
+
+        outcome_icons = {"complete": "✅", "error": "⚠️", "no_submit": "❌"}
+
+        def _cmp_icon(m, c):
+            return outcome_icons.get(outcome_by.get((m, c), ""), "—")
+
+        differ = sorted(c for c in shared
+                        if outcome_by.get((cmp_m_a, c)) != outcome_by.get((cmp_m_b, c)))
+        same   = sorted(c for c in shared
+                        if outcome_by.get((cmp_m_a, c)) == outcome_by.get((cmp_m_b, c)))
+
+        show_same = st.checkbox("Also show runs where both had the same outcome", key="cmp_show_same")
+        comps_pool = differ + (same if show_same else [])
+
+        if not comps_pool:
+            st.info("No shared competitions found for these two models." if not shared else
+                    "Both models had the same outcome on all shared competitions — "
+                    "tick 'Also show same outcome' to browse them.")
+        else:
+            choices_cmp = [
+                f"{_cmp_icon(cmp_m_a, c)} vs {_cmp_icon(cmp_m_b, c)}  {c}"
+                for c in comps_pool
+            ]
+            cmp_choice = st.selectbox(
+                f"Competition ({len(differ)} differ, {len(same)} same)",
+                choices_cmp, key="cmp_comp"
+            )
+            cmp_comp = cmp_choice.split("  ", 1)[1] if "  " in cmp_choice else cmp_choice
+
+            rec_a = next((r for r in cmp_fail if r["model"] == cmp_m_a and r["comp"] == cmp_comp), None)
+            rec_b = next((r for r in cmp_fail if r["model"] == cmp_m_b and r["comp"] == cmp_comp), None)
+
+            medal_icons = {"gold": "🥇", "silver": "🥈", "bronze": "🥉"}
+
+            def _medal_label(medal, had_score):
+                """Human label for a medal value (or 'No medal' when scored)."""
+                if medal not in ("none", None, ""):
+                    return f"{medal_icons.get(medal,'')} {medal.title()}"
+                if had_score:
+                    return "No medal"
+                return None
+
+            def _side_line(side_label, medal, pct, above, rank, had_score):
+                """Build one 'side: …' line for Public/Private leaderboard, or '' if no data."""
+                bits = []
+                m_label = _medal_label(medal, had_score)
+                if m_label:
+                    bits.append(m_label)
+                if pct is not None:
+                    bits.append(f"pct **{pct:.2f}**")
+                if above is not None:
+                    bits.append("🔺 above median" if above else "🔻 below median")
+                if rank is not None:
+                    bits.append(f"rank {rank}")
+                if not bits:
+                    return ""
+                return f"**{side_label}:** " + " · ".join(bits)
+
+            def _outcome_summary(rec):
+                """Rich outcome summary for one comparison side (public + private LB)."""
+                if rec is None:
+                    return "No run found."
+                icon = outcome_icons.get(rec.get("outcome", ""), "")
+                had_score = rec.get("score") is not None
+                score_str = f" · **score {rec['score']}**" if had_score else ""
+                lines = [f"{icon} `{rec.get('model') or cmp_m_a}` — `{rec.get('outcome','')}`{score_str}"]
+                pub = _side_line("Public", rec.get("public_medal"), rec.get("pub_percentile"),
+                                 rec.get("pub_above_med"), rec.get("pub_rank"), had_score)
+                prv = _side_line("Private", rec.get("private_medal"), rec.get("priv_percentile"),
+                                 rec.get("priv_above_med"), rec.get("priv_rank"), had_score)
+                for ln in (pub, prv):
+                    if ln:
+                        lines.append(ln)
+                return "\n\n".join(lines)
+
+            h1, h2 = st.columns(2)
+            h1.markdown(_outcome_summary(rec_a))
+            h2.markdown(_outcome_summary(rec_b))
+
+            n_cmp = st.slider("Show last N turns (each side)", 1, 50, 6, key="cmp_n_turns")
+
+            def _render_cmp_turns(rec, container):
+                if rec is None:
+                    container.info("No run found.")
+                    return
+                traj = rec.get("trajectory", [])
+                with container:
+                    for i, turn in enumerate(traj[-n_cmp:]):
+                        if not isinstance(turn, dict): continue
+                        # Reuse the full-featured renderer (reasoning, code,
+                        # output/error, DAGs) instead of a stripped-down excerpt.
+                        _render_turn(
+                            i, turn,
+                            show_dags=True, show_code=True,
+                            show_results=True, show_reasoning=True,
+                            search_term="",
+                        )
+
+            col_a, col_b = st.columns(2)
+            _render_cmp_turns(rec_a, col_a)
+            _render_cmp_turns(rec_b, col_b)
+
+    st.markdown("---")
+
     # Build challenge list for this run
     challenges = [r.get("challenge","?") or f"sample_{r.get('sample_id','?')}" for r in run_data]
     with col_task:
@@ -3509,6 +3699,10 @@ def page_trace_viewer(dp_data, dp_hard_data, bio_data):
 
     st.caption(f"Showing {len(turns_to_show)} of {n_turns} turns")
     st.markdown("---")
+
+    # ── Render turns ──────────────────────────────────────────────────────────
+    for i, turn in enumerate(turns_to_show):
+        _render_turn(start_idx + i, turn, show_dags, show_code, show_results, show_reasoning, search_term)
 
     # ── Render turns ──────────────────────────────────────────────────────────
     for i, turn in enumerate(turns_to_show):

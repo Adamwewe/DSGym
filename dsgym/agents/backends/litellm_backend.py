@@ -163,7 +163,6 @@ class LiteLLMBackend(BaseBackend):
                     model=self.model_name, 
                     messages=messages, 
                     timeout=self.timeout,
-                    reasoning_effort="high",
                     **params
                 )
                 content = response.choices[0].message.content

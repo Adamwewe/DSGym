@@ -251,6 +251,7 @@ def run_eval(args) -> int:
         temperature=args.temperature,
         max_workers=args.max_workers,
         tag=args.tag,
+        seed=args.seed,
         extra_config={
             "generate_dags": args.dags,
             **({"prompt_variant": args.prompt} if is_dspredict and args.dags else {})

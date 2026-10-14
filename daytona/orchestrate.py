@@ -1790,7 +1790,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Repo
     p.add_argument("--repo-url", default="https://github.com/Adamwewe/DSGym.git")
-    p.add_argument("--branch", default="feature/ai-gateway", #default="feature/scaffolding-with-cuda",
+    p.add_argument("--branch", default="ai-gateway", #default="feature/scaffolding-with-cuda",
                    help="Git branch to clone into the sandbox (default: feature/scaffolding-with-cuda or feature/daytona-added).")
     p.add_argument("--github-user", default=os.environ.get("GITHUB_USER"))
     p.add_argument("--github-token", default=os.environ.get("GITHUB_TOKEN"),

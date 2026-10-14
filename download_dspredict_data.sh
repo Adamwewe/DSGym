@@ -56,13 +56,13 @@ dl() {
     fi
 
     # Remove files left by a previously interrupted extraction before retrying.
-    find "$dir" -mindepth 1 ! -name '*.zip' -exec rm -rf -- {} +
+    find "$dir" -mindepth 1 -maxdepth 1 ! -name '*.zip' -exec rm -rf -- {} +
     for zip in "${archives[@]}"; do
         echo "[EXT]  $(basename "$zip")"
         if ! unzip -tq "$zip" || ! unzip -q -o "$zip" -d "$dir" </dev/null; then
             echo "[ERROR] $name — extraction failed; check free disk space and archive integrity." >&2
             df -h "$dir" >&2 || true
-            find "$dir" -mindepth 1 ! -name '*.zip' -exec rm -rf -- {} +
+            find "$dir" -mindepth 1 -maxdepth 1 ! -name '*.zip' -exec rm -rf -- {} +
             return 1
         fi
     done

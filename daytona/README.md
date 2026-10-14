@@ -178,7 +178,7 @@ All flags are optional unless marked **Required**.
 |---|---|---|
 | `--cpu` | 16 | Sandbox vCPUs |
 | `--memory` | 64 | Sandbox RAM (GiB) |
-| `--disk` | 100 | Sandbox disk (GiB) |
+| `--disk` | 200 | Sandbox disk (GiB) |
 | `--gpu-count` | 2 | Number of GPUs |
 | `--gpu-type` | `RTX_4090` | Comma-separated GPU preference list, e.g. `RTX_4090,RTX_5090` |
 | `--create-timeout` | 1800 | Seconds to wait for the sandbox to reach `STARTED` |
@@ -272,7 +272,7 @@ Use a different model or backend:
 
 ## What each phase does
 
-- **create** — creates a GPU sandbox (default: 4 vCPU / 32GB RAM / 100GB disk
+- **create** — creates a GPU sandbox (default: 4 vCPU / 32GB RAM / 200GB disk
   / 1 GPU) using `Image.base("ubuntu:22.04")` with Python and build tools
   pre-installed, and injects `OPENAI_API_KEY` as a sandbox-level env var so
   no later command has to embed the raw key in a shell string.
@@ -325,9 +325,10 @@ Use a different model or backend:
   `download_*.sh` script.
 
   Kaggle data is downloaded to the sandbox's local disk under
-  `data/data/`. The default `dspredict-sampled` dataset uses the smaller
-  sampled downloader; `dspredict-hard` and `dspredict-easy` download the full
-  competition set and may require a larger `--disk` than the 100 GiB default.
+  `data/data/`. The default `dspredict-sampled` dataset downloads 35
+  competitions, including large corpora such as TREC-COVID. The default disk
+  is 200 GiB to accommodate extraction; `dspredict-hard` and `dspredict-easy`
+  download the full competition set and may need a larger `--disk`.
   Data is not cached on the persistent results volume, so a new sandbox
   downloads its selected dataset again.
 

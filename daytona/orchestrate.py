@@ -1791,7 +1791,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # Sandbox resources
     p.add_argument("--cpu", type=int, default=16)
     p.add_argument("--memory", type=int, default=64, help="GB RAM")
-    p.add_argument("--disk", type=int, default=100, help="GB disk")
+    p.add_argument("--disk", type=int, default=200, help="GB disk")
     p.add_argument("--gpu-count", type=int, default=2)
     p.add_argument("--gpu-type", default="RTX_4090",
                    help="Comma-separated preference list, e.g. RTX-4090, RTX-5090 (default: RTX-4090)")
@@ -1833,9 +1833,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # Eval
     p.add_argument("--dataset", default="dspredict-sampled",
                     choices=["dspredict-easy", "dspredict-hard", "dspredict-sampled"],
-                    help="Default is 'dspredict-sampled' (~34 lighter-weight competitions) to keep the "
-                         "smoke test's Kaggle data download small. 'dspredict-hard'/'dspredict-easy' pull "
-                         "the full ~53-competition set and need a much bigger --disk.")
+                    help="Default is 'dspredict-sampled' (35 competitions, including large corpora); "
+                         "'dspredict-hard'/'dspredict-easy' pull the full ~53-competition set and may "
+                         "need a larger --disk.")
     p.add_argument("--model", default="gpt-4o")
     p.add_argument("--backend", default="litellm",
                    choices=["gateway", "litellm", "vllm", "sglang"],

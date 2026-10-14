@@ -3,6 +3,7 @@ Backend implementations for DSGym agents.
 """
 
 from .base import BaseBackend
+from .gateway_backend import GatewayBackend
 from .litellm_backend import LiteLLMBackend
 from .vllm_backend import VLLMBackend
 from .sglang_backend import SGLangBackend
@@ -10,6 +11,7 @@ from .multi_vllm_backend import MultiVLLMBackend
 
 __all__ = [
     'BaseBackend',
+    'GatewayBackend',
     'LiteLLMBackend', 
     'VLLMBackend',
     'SGLangBackend',
@@ -22,7 +24,7 @@ def get_backend(backend_type: str, model_name: str, **kwargs) -> BaseBackend:
     Get backend instance by type.
     
     Args:
-        backend_type: Type of backend ('litellm', 'vllm', 'sglang', 'multi-vllm')
+        backend_type: Type of backend ('gateway', 'litellm', 'vllm', 'sglang', 'multi-vllm')
         model_name: Model name/path
         **kwargs: Backend-specific configuration
         
@@ -30,6 +32,7 @@ def get_backend(backend_type: str, model_name: str, **kwargs) -> BaseBackend:
         Backend instance
     """
     backend_map = {
+        'gateway': GatewayBackend,
         'litellm': LiteLLMBackend,
         'vllm': VLLMBackend,
         'sglang': SGLangBackend,

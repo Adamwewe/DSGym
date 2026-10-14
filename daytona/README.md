@@ -26,9 +26,16 @@ into an image):
 | Variable | Purpose |
 |---|---|
 | `DAYTONA_API_KEY` | Auth for the Daytona SDK (sandbox create/exec/fs). |
-| `OPENAI_API_KEY` | Passed into the sandbox as an env var for the gpt-4o agent under evaluation. |
+| `OPENAI_API_KEY` | Passed into the sandbox at creation for `--backend litellm`. |
+| `AI_CODING_GATEWAY_API_KEY` | Passed into the sandbox at creation for `--backend gateway`. |
+| `AI_CODING_GATEWAY_PROJECT` | Required gateway project code; sent as `X-Project` by the gateway backend. |
 | `KAGGLE_TOKEN` | Modern Kaggle access token (starts with `KGAT_...`), written to `~/.kaggle/access_token` inside the sandbox — required for DSPredict data download and submission scoring. |
 | `GITHUB_TOKEN` / `GITHUB_USER` | Only needed if `--repo-url` points at a private repo. |
+
+Choose the credentials for the backend before creating the sandbox. Daytona
+injects them as sandbox-level environment variables at `--phase create`;
+`--phase run` cannot add or change them later. For the gateway, export both
+gateway variables and use the same `--backend gateway` for create and run.
 
 ## Quick start
 
@@ -66,6 +73,24 @@ export KAGGLE_TOKEN=KGAT_...
 .venv/bin/python orchestrate.py --phase all \
   --num-executors 4 --limit 5 --model gpt-4o
 ```
+
+To use the AI Coding Gateway instead of direct LiteLLM provider credentials:
+
+```bash
+export DAYTONA_API_KEY=...
+export AI_CODING_GATEWAY_API_KEY=...
+export AI_CODING_GATEWAY_PROJECT=...
+export KAGGLE_TOKEN=KGAT_...
+.venv/bin/python orchestrate.py --phase all --backend gateway \
+  --num-executors 4 --limit 5 --model claude-opus-4-8
+```
+
+When running phases separately, pass `--backend gateway` to both `create` and
+`run`. For an existing sandbox that was created without the gateway variables,
+create a new sandbox; the orchestrator fails early rather than starting an
+evaluation without the required credentials. The `--branch` cloned during
+bootstrap must also contain the DSGym gateway backend implementation; push
+that change to the selected remote branch before creating the sandbox.
 
 Or drive it phase-by-phase (useful when iterating, since sandbox creation
 and dependency installs are slow and phases are re-runnable independently via
@@ -175,7 +200,7 @@ All flags are optional unless marked **Required**.
 |---|---|---|
 | `--dataset` | `dspredict-sampled` | Dataset to evaluate: `dspredict-sampled`, `dspredict-hard`, `dspredict-easy` |
 | `--model` | `gpt-4o` | Model name passed to `dsgym eval --model` |
-| `--backend` | `litellm` | Inference backend: `litellm`, `vllm`, `sglang` |
+| `--backend` | `litellm` | Inference backend: `gateway`, `litellm`, `vllm`, `sglang`. Choose it during create and run. |
 | `--limit` | 5 | Number of samples to evaluate |
 | `--max-workers` | `--num-executors` | Number of parallel `dsgym eval` workers |
 | `--dags` | `true` | Enable DAG-guided reasoning (`true` or `false`) |
@@ -306,9 +331,9 @@ Use a different model or backend:
   entirely — just symlinks into the repo's `data/data/` directory.
 
   **The volume also stores `evaluation_results/`** — every `fetch` and
-  `auto-fetch` copies results to the volume, so they persist across sandbox
-  deletions. When a new sandbox bootstraps, it restores any previous results
-  from the volume.
+  `auto-fetch` copies results to the volume as a backup, so they persist
+  across sandbox deletions. Bootstrap does not restore them into the sandbox;
+  experiments start with a fresh `evaluation_results/` directory.
 
   If the volume is missing or empty, `bootstrap` downloads from scratch.
 

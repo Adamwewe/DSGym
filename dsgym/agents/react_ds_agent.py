@@ -22,7 +22,7 @@ class ReActDSAgent(BaseAgent):
         Initialize ReActDSAgent.
         
         Args:
-            backend: Backend type (litellm, vllm, sglang)
+            backend: Backend type (gateway, litellm, vllm, sglang)
             model: Model name/identifier
             **kwargs: Additional configuration
         """

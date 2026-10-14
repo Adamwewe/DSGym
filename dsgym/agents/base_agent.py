@@ -14,7 +14,7 @@ class BaseAgent(ABC):
         Initialize agent.
         
         Args:
-            backend: Backend type (vllm, litellm, openai, anthropic)
+            backend: Backend type (gateway, vllm, litellm, openai, anthropic)
             model: Model name/identifier
             **kwargs: Additional configuration
         """

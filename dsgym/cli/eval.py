@@ -33,7 +33,7 @@ def add_eval_parser(subparsers):
     parser.add_argument("--model", type=str, required=True,
                        help="Model name (e.g., 'gpt-4', 'together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput')")
     parser.add_argument("--backend", type=str, default="litellm",
-                       choices=["litellm", "vllm", "sglang"],
+                       choices=["gateway", "litellm", "vllm", "sglang"],
                        help="Backend to use for model inference")
     
     # Dataset configuration
@@ -111,7 +111,7 @@ def run_eval(args) -> int:
 
     # Set default max_workers based on backend
     if args.max_workers is None:
-        if args.backend == "litellm":
+        if args.backend in ("gateway", "litellm"):
             args.max_workers = 24
         else:  # vllm or sglang
             args.max_workers = 1
@@ -250,6 +250,7 @@ def run_eval(args) -> int:
         max_turns=args.max_turns,
         temperature=args.temperature,
         max_workers=args.max_workers,
+        seed=args.seed,
         tag=args.tag,
         extra_config={
             "generate_dags": args.dags,

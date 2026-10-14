@@ -8,8 +8,11 @@
 #
 # Prerequisites (export before running):
 #   export DAYTONA_API_KEY=...
-#   export OPENAI_API_KEY=...
+#   export OPENAI_API_KEY=...                         # BACKEND=litellm
+#   export AI_CODING_GATEWAY_API_KEY=...              # BACKEND=gateway
+#   export AI_CODING_GATEWAY_PROJECT=...              # BACKEND=gateway
 #   export KAGGLE_TOKEN=KGAT_...
+#   BACKEND=gateway MODEL=claude-opus-4-8 ./run_experiments.sh
 #
 # The script runs multiple prompt variants sequentially, resetting the
 # executor pool between each run to avoid stuck containers.
@@ -21,6 +24,14 @@ cd "$(dirname "$0")"
 
 SKIP_CREATE=false
 NO_KILL=false
+BACKEND="${BACKEND:-litellm}"
+if [ -z "${MODEL:-}" ]; then
+  if [ "$BACKEND" = "gateway" ]; then
+    MODEL="claude-opus-4-8"
+  else
+    MODEL="gpt-4o-mini"
+  fi
+fi
 for arg in "$@"; do
   case $arg in
     --skip-create) SKIP_CREATE=true ;;
@@ -33,7 +44,7 @@ if [ "$SKIP_CREATE" = false ]; then
   echo "══════════════════════════════════════════════════════════════"
   echo "PHASE: create + preflight + bootstrap + launch"
   echo "══════════════════════════════════════════════════════════════"
-  .venv/bin/python orchestrate.py --phase create --cpu 16 --memory 64 --gpu-count 2 --gpu-type RTX_4090
+  .venv/bin/python orchestrate.py --phase create --backend "$BACKEND" --cpu 16 --memory 64 --gpu-count 2 --gpu-type RTX_4090
   .venv/bin/python orchestrate.py --phase preflight
   .venv/bin/python orchestrate.py --phase bootstrap --dataset dspredict-hard
   .venv/bin/python orchestrate.py --phase launch --num-executors 4 --execution-timeout 7200
@@ -52,8 +63,6 @@ trap "kill $AUTO_FETCH_PID 2>/dev/null || true" EXIT
 
 # ─── Phase 2: Run experiments ──────────────────────────────────────────────
 DATASET="${DATASET:-dspredict-hard}"
-MODEL="${MODEL:-gpt-4o-mini}"
-BACKEND="${BACKEND:-litellm}"
 MAX_WORKERS="${MAX_WORKERS:-4}"
 LIMIT="${LIMIT:-100}"
 # Seeds to cycle through; overridable from outside via SEEDS (space-separated).

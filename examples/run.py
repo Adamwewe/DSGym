@@ -91,7 +91,7 @@ Examples:
     
     # Model configuration
     parser.add_argument("--backend", type=str, default="litellm",
-                       choices=["litellm", "vllm", "sglang"],
+                       choices=["gateway", "litellm", "vllm", "sglang"],
                        help="Backend to use (default: litellm)")
     parser.add_argument("--temperature", type=float, default=0.0,
                        help="Sampling temperature (default: 0.0)")

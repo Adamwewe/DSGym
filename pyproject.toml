@@ -43,7 +43,7 @@ dependencies = [
     "httpx>=0.24.0",
     "transformers>=4.51.0",
     "litellm >=1.80.10",
-    "kaggle",
+    "kaggle==2.2.2",
     "kagglesdk",
     "beautifulsoup4",
     "selenium",

@@ -10,7 +10,7 @@ DSGym addresses the critical need for systematic evaluation of AI agents' data s
 
 - **Unified Benchmark Framework**: Evaluate LLMs across multiple data science datasets
 - **Isolated Execution**: Docker-based container system for safe code execution
-- **Multiple Backend Support**: LiteLLM (API-based), vLLM, and SGLang inference backends
+- **Multiple Backend Support**: AI Coding Gateway and LiteLLM (API-based), vLLM, and SGLang inference backends
 - **Comprehensive Metrics**: Various evaluation metrics including exact match, semantic similarity, and domain-specific scoring
 - **Multi-Dataset Support**: DAEval, DiscoveryBench, DABStep, QRData, DSBio, and DSPredict integration
 - **Trajectory Generation**: Generate multiple trajectories per sample for synthetic data creation and pass@k evaluation
@@ -50,6 +50,23 @@ uv sync --extra sglang     # SGLang inference backend
 uv sync --extra metrics    # Additional evaluation metrics
 uv sync --extra synth      # Synthetic data generation
 ```
+
+### Use the AI Coding Gateway
+
+Select `gateway` as the backend to route an OpenAI-compatible chat completion
+through the AI Coding Gateway. Set the gateway credentials in the environment;
+the gateway backend sends the API key as a bearer token and the project code as
+the required `X-Project` header:
+
+```bash
+export AI_CODING_GATEWAY_API_KEY="..."
+export AI_CODING_GATEWAY_PROJECT="..."
+dsgym eval --backend gateway --model claude-opus-4-8 --dataset daeval
+```
+
+Bare model names are routed to the `anthropic/` model family. Provider-qualified
+names such as `anthropic/claude-opus-4-8` are sent unchanged. `litellm` remains
+available for direct provider integrations.
 
 ### 2. Setup Docker Execution Environment
 

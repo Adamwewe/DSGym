@@ -22,7 +22,7 @@ def add_generate_parser(subparsers):
     parser.add_argument("--model", type=str, required=True,
                        help="Model name (e.g., 'gpt-4', 'together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput')")
     parser.add_argument("--backend", type=str, default="litellm",
-                       choices=["litellm", "vllm", "sglang"],
+                       choices=["gateway", "litellm", "vllm", "sglang"],
                        help="Backend to use for model inference")
     
     # Dataset configuration

@@ -1,0 +1,174 @@
+
+======================================================================
+PHASE: launch
+======================================================================
+🧹 Stopping manager + executor processes...
+
+$ mkdir -p /root/DSGym/data/data /root/DSGym/submissions
+
+$ mkdir -p /data /submission
+
+$ chmod 777 /submission
+🧩 Generating /root/DSGym/daytona_container_config.json for 4 executor-kaggle worker(s)...
+
+$ cat > /root/DSGym/daytona_container_config.json <<'EOF'
+{
+  "0": {
+    "url": "http://localhost:8432",
+    "type": "executor-kaggle"
+  },
+  "1": {
+    "url": "http://localhost:8433",
+    "type": "executor-kaggle"
+  },
+  "2": {
+    "url": "http://localhost:8434",
+    "type": "executor-kaggle"
+  },
+  "3": {
+    "url": "http://localhost:8435",
+    "type": "executor-kaggle"
+  }
+}
+EOF
+
+$ mkdir -p /root/DSGym/submissions/container_000 && chmod 777 /root/DSGym/submissions/container_000
+
+$ mkdir -p /root/DSGym/submissions/container_001 && chmod 777 /root/DSGym/submissions/container_001
+
+$ mkdir -p /root/DSGym/submissions/container_002 && chmod 777 /root/DSGym/submissions/container_002
+
+$ mkdir -p /root/DSGym/submissions/container_003 && chmod 777 /root/DSGym/submissions/container_003
+   Manager venv FastAPI version before launch: 0.104.1
+🚀 Starting manager on port 5000...
+
+$ cd /root/DSGym/executors/manager && PATH=/root/DSGym/.venv-manager/bin:$PATH PORT=5000 CONTAINER_CONFIG_PATH=/root/DSGym/daytona_container_config.json ALLOCATION_TIMEOUT=3600 nohup /root/DSGym/.venv-manager/bin/python3 main.py > /tmp/dsgym_manager.log 2>&1 &
+
+$ sleep 2 && echo $! > /tmp/dsgym_manager.pid
+⏳ Waiting for manager /health to report ready...
+✅ Manager healthy after 0s.
+🚀 Starting 4 executor-kaggle worker(s) with mount-namespace isolation...
+
+$ chmod +x /tmp/dsgym_executor_000.sh
+
+$ DSGYM_EXECUTOR_WORKER=0 nohup bash /tmp/dsgym_executor_000.sh > /tmp/dsgym_executor_000.log 2>&1 &
+
+$ echo $! > /tmp/dsgym_executor_000.pid
+   Executor 0 log preview:
+/root/DSGym/executors/container_images/kaggle_image/main.py:31: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/root/DSGym/executors/container_images/kaggle_image/main.py:35: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [1819]
+INFO:     Waiting for application startup.
+0.00s - Debugger warning: It seems that frozen modules are being used, which may
+0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+0.00s - to python to disable frozen modules.
+0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8432 (Press CTRL+C to quit)
+
+
+$ chmod +x /tmp/dsgym_executor_001.sh
+
+$ DSGYM_EXECUTOR_WORKER=1 nohup bash /tmp/dsgym_executor_001.sh > /tmp/dsgym_executor_001.log 2>&1 &
+
+$ echo $! > /tmp/dsgym_executor_001.pid
+   Executor 1 log preview:
+/root/DSGym/executors/container_images/kaggle_image/main.py:31: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/root/DSGym/executors/container_images/kaggle_image/main.py:35: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [1862]
+INFO:     Waiting for application startup.
+0.00s - Debugger warning: It seems that frozen modules are being used, which may
+0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+0.00s - to python to disable frozen modules.
+0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8433 (Press CTRL+C to quit)
+
+
+$ chmod +x /tmp/dsgym_executor_002.sh
+
+$ DSGYM_EXECUTOR_WORKER=2 nohup bash /tmp/dsgym_executor_002.sh > /tmp/dsgym_executor_002.log 2>&1 &
+
+$ echo $! > /tmp/dsgym_executor_002.pid
+   Executor 2 log preview:
+/root/DSGym/executors/container_images/kaggle_image/main.py:31: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/root/DSGym/executors/container_images/kaggle_image/main.py:35: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [1905]
+INFO:     Waiting for application startup.
+0.00s - Debugger warning: It seems that frozen modules are being used, which may
+0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+0.00s - to python to disable frozen modules.
+0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8434 (Press CTRL+C to quit)
+
+
+$ chmod +x /tmp/dsgym_executor_003.sh
+
+$ DSGYM_EXECUTOR_WORKER=3 nohup bash /tmp/dsgym_executor_003.sh > /tmp/dsgym_executor_003.log 2>&1 &
+
+$ echo $! > /tmp/dsgym_executor_003.pid
+   Executor 3 log preview:
+/root/DSGym/executors/container_images/kaggle_image/main.py:31: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/root/DSGym/executors/container_images/kaggle_image/main.py:35: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [1948]
+INFO:     Waiting for application startup.
+0.00s - Debugger warning: It seems that frozen modules are being used, which may
+0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+0.00s - to python to disable frozen modules.
+0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8435 (Press CTRL+C to quit)
+
+⏳ Waiting for executor workers to become ready...
+✅ All 4 executor workers ready.
+
+✅ Done.

@@ -1,0 +1,58 @@
+⏳ Waiting for seed 42 eval(s) to finish in sandbox...
+   Progress: adaptive-revision:59 problem-decomposition:59 data-quality-methods:53 expert-agentic:53 
+   Progress: adaptive-revision:59 problem-decomposition:59 data-quality-methods:53 expert-agentic:53 
+   Progress: adaptive-revision:59 problem-decomposition:59 data-quality-methods:53 expert-agentic:53 
+   Progress: adaptive-revision:59 problem-decomposition:59 data-quality-methods:53 expert-agentic:53 
+   Progress: adaptive-revision:59 problem-decomposition:59 data-quality-methods:53 expert-agentic:53 
+   Progress: adaptive-revision:59 problem-decomposition:59 data-quality-methods:53 expert-agentic:53 
+✅ Seed 42 eval finished.
+📦 Fetching results...
+
+======================================================================
+PHASE: fetch
+======================================================================
+📦 Archiving evaluation_results/ (+ submissions/) inside the sandbox -> /tmp/dsgym_results_1787194081.tar.gz ...
+Traceback (most recent call last):
+  File "/Users/michelle/Development/DSGym-1/daytona/orchestrate.py", line 1604, in <module>
+    main()
+  File "/Users/michelle/Development/DSGym-1/daytona/orchestrate.py", line 1582, in main
+    state = phase_fetch(get_sandbox(daytona, state), state, args)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/michelle/Development/DSGym-1/daytona/orchestrate.py", line 1125, in phase_fetch
+    _do_fetch(sandbox, state, args, verbose=True)
+  File "/Users/michelle/Development/DSGym-1/daytona/orchestrate.py", line 1150, in _do_fetch
+    sandbox.process.exec(
+  File "/Users/michelle/Development/DSGym-1/daytona/.venv/lib/python3.12/site-packages/daytona/_utils/errors.py", line 233, in sync_wrapper
+    process_n_raise_exception(e)
+  File "/Users/michelle/Development/DSGym-1/daytona/.venv/lib/python3.12/site-packages/daytona/_utils/errors.py", line 166, in process_n_raise_exception
+    raise create_daytona_error(
+daytona.common.errors.DaytonaError: Failed to execute command: command execution timeout
+⚠️  Fetch failed — results may still be on volume
+🛑 Stopping sandbox from state file...
+
+======================================================================
+PHASE: kill
+======================================================================
+⚠️  GPU sandboxes are ephemeral — stopping will DELETE the sandbox.
+📦 Auto-fetching results before stop...
+📦 Archiving evaluation_results/ (+ submissions/) inside the sandbox -> /tmp/dsgym_results_1787194228.tar.gz ...
+⚠️  Auto-fetch failed: Failed to execute command: command execution timeout
+🛑 Refusing to stop without fetching results. Pass --force to skip.
+
+✅ Done.
+🧹 Sweeping any remaining DSGym sandboxes...
+
+======================================================================
+PHASE: sweep
+======================================================================
+🔍 Listing all sandboxes labeled {'project': 'dsgym', 'purpose': 'dspredict-gpu-smoketest'} ...
+
+Found 1 sandbox(es):
+  - fe391ef8-7060-455d-9b9c-8f96d4056242  state=SandboxState.STARTED  cpu=16 mem=64GB gpu=2 created_at=2026-08-19T19:04:32.802Z
+
+🛑 Stopping fe391ef8-7060-455d-9b9c-8f96d4056242 ...
+
+✅ Stopped 1 sandbox(es).
+
+✅ Done.
+✅ Seed 42 complete. All sandboxes stopped.

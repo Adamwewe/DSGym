@@ -91,7 +91,7 @@ def create_parser():
     
     # Common arguments
     parser.add_argument("--backend", type=str, default="litellm", 
-                       choices=["litellm", "vllm", "sglang"],
+                       choices=["gateway", "litellm", "vllm", "sglang"],
                        help="Backend to use for model inference")
     parser.add_argument("--limit", type=int, default=None, 
                        help="Number of samples to evaluate")
@@ -322,7 +322,7 @@ def main():
     
     # Set default max_workers based on backend
     if args.max_workers is None:
-        if args.backend == "litellm":
+        if args.backend in ("gateway", "litellm"):
             args.max_workers = 24
         else:  # vllm or sglang
             args.max_workers = 1

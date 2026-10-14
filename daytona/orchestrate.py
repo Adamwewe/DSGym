@@ -18,7 +18,8 @@ Phases (run with --phase, or `all` to run everything except teardown):
   launch     Generate a container_config.json for N executor-kaggle workers
              + 1 manager, start them as background processes, and wait for the
              manager /health endpoint before returning.
-  run        Write KAGGLE_TOKEN to ~/.kaggle/access_token + push OPENAI_API_KEY,
+  run        Write KAGGLE_TOKEN to ~/.kaggle/access_token and run dsgym eval
+             with the selected backend's credentials provisioned at create time,
              start `dsgym eval` in a background Daytona session, and stream its
              stdout/stderr live to this terminal until it finishes.
    fetch      Sync evaluation_results/ to the persistent volume, then tar and
@@ -77,8 +78,11 @@ re-creating the sandbox each time.
 
 Credentials (never committed, never baked into images):
   DAYTONA_API_KEY   Required. Auth for the Daytona SDK itself.
-  OPENAI_API_KEY    Required. Passed into the sandbox as a secret env var
-                    for the gpt-4o agent under evaluation.
+  OPENAI_API_KEY    Required for --backend litellm. Passed into the sandbox
+                    as a secret env var at create time.
+  AI_CODING_GATEWAY_API_KEY and AI_CODING_GATEWAY_PROJECT
+                    Required for --backend gateway. Passed into the sandbox
+                    as secret env vars at create time.
   KAGGLE_TOKEN      Required for DSPredict. Modern Kaggle access token
                     (starts with KGAT_...). Written to ~/.kaggle/access_token
                     inside the sandbox; never written to disk here.
@@ -127,11 +131,15 @@ DEFAULT_STATE_FILE = SCRIPT_DIR / ".daytona_state.json"
 MANAGER_PORT = 5000
 EXECUTOR_BASE_PORT = 8432
 EXECUTOR_START_PORT = 60000  # legacy host-port mapping kept for parity
+# Upper bound for port-cleanup in _stop_services (8432 + 7 = 8439 for 8 executors).
+MAX_EXECUTOR_WORKERS = 8
+SERVICE_PORTS = [MANAGER_PORT] + [EXECUTOR_BASE_PORT + i for i in range(MAX_EXECUTOR_WORKERS)]
 # Applied to every sandbox this script creates, so `sweep` can find (and
 # kill) them later even without a local state file.
 SANDBOX_LABELS = {"project": "dsgym", "purpose": "dspredict-gpu-smoketest"}
-# Persistent volume for Kaggle competition data — survives sandbox deletion
-# so we don't re-download 50+ competitions on every new sandbox.
+# Persistent volume — used for evaluation_results backup across sandbox deletion.
+# Kaggle competition data is downloaded into the sandbox filesystem on each bootstrap
+# (not cached on the volume; large volume copies have been unreliable).
 KAGGLE_DATA_VOLUME_NAME = "dsgym-kaggle-data"
 KAGGLE_DATA_VOLUME_MOUNT = "/mnt/kaggle-data"
 # Maps --dataset values to (task JSON under repo root, data/data subdir used by dsgym eval).
@@ -317,11 +325,37 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
     gpu_types = None
     if args.gpu_type:
         gpu_types = [getattr(GpuType, t.strip().upper()) for t in args.gpu_type.split(",")]
-    openai_key = args.openai_api_key or os.environ.get("OPENAI_API_KEY")
-    if not openai_key:
-        print("❌ OPENAI_API_KEY not set locally and --openai-api-key not passed. "
-              "The sandbox needs it at creation time so `dsgym eval` can read it later.", file=sys.stderr)
-        sys.exit(1)
+    if args.backend == "gateway":
+        gateway_key = os.environ.get("AI_CODING_GATEWAY_API_KEY")
+        gateway_project = os.environ.get("AI_CODING_GATEWAY_PROJECT")
+        missing_gateway_vars = [
+            name for name, value in (
+                ("AI_CODING_GATEWAY_API_KEY", gateway_key),
+                ("AI_CODING_GATEWAY_PROJECT", gateway_project),
+            ) if not value
+        ]
+        if missing_gateway_vars:
+            print(
+                "❌ Gateway backend requires "
+                f"{', '.join(missing_gateway_vars)} in the local environment. "
+                "Export them before --phase create; the sandbox receives them "
+                "as environment variables.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        inference_env = {
+            "AI_CODING_GATEWAY_API_KEY": gateway_key,
+            "AI_CODING_GATEWAY_PROJECT": gateway_project,
+        }
+    elif args.backend == "litellm":
+        openai_key = args.openai_api_key or os.environ.get("OPENAI_API_KEY")
+        if not openai_key:
+            print("❌ OPENAI_API_KEY not set locally and --openai-api-key not passed. "
+                  "The sandbox needs it at creation time so `dsgym eval` can read it later.", file=sys.stderr)
+            sys.exit(1)
+        inference_env = {"OPENAI_API_KEY": openai_key}
+    else:
+        inference_env = {}
 
     print(f"🚀 Creating Daytona GPU sandbox (cpu={args.cpu}, memory={args.memory}GB, "
           f"disk={args.disk}GB, gpu={args.gpu_count}, gpu_type={gpu_types or 'any available'})...")
@@ -365,7 +399,7 @@ def phase_create(daytona: Daytona, state: dict, args) -> dict:
             gpu=args.gpu_count,
             gpu_type=gpu_types,
         ),
-        env_vars={"OPENAI_API_KEY": openai_key},
+        env_vars=inference_env,
         auto_delete_interval=0,  # GPU sandboxes must be ephemeral (Daytona requirement)
         auto_stop_interval=999999,  # ~694 days — effectively "never auto-stop"
         labels=SANDBOX_LABELS,
@@ -415,7 +449,7 @@ def _ensure_system_packages(sandbox) -> None:
     print("🔧 Installing system packages for Python ML builds...")
     run(sandbox, (
         "apt-get update && apt-get install -y "
-        "build-essential libgomp1 curl ca-certificates gnupg git unzip "
+        "build-essential libgomp1 curl ca-certificates gnupg git unzip lsof "
         "libglib2.0-0 libsm6 libxext6 libxrender-dev libgl1-mesa-glx"
     ), timeout=300)
 
@@ -511,24 +545,91 @@ def _wait_for_executor(sandbox, port: int, timeout: int = 180):
     return False
 
 
+def _pids_on_port_shell() -> str:
+    """Shell snippet that prints PIDs listening on $port (must be set by caller)."""
+    return (
+        "if command -v lsof >/dev/null 2>&1; then "
+        "  lsof -ti :$port 2>/dev/null || true; "
+        "elif command -v ss >/dev/null 2>&1; then "
+        "  ss -H -tlnp sport = :$port 2>/dev/null "
+        "    | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true; "
+        "elif command -v fuser >/dev/null 2>&1; then "
+        "  fuser -n tcp $port 2>/dev/null || true; "
+        "fi"
+    )
+
+
+_pids_on_port = _pids_on_port_shell()
+
+
+def _ports_in_use(sandbox, ports: list[int]) -> list[int]:
+    """Return which of *ports* still have a listener inside the sandbox."""
+    port_checks = " ".join(str(p) for p in ports)
+    script = (
+        f"busy=''; for port in {port_checks}; do "
+        f"  pids=$({_pids_on_port}); "
+        "  [ -n \"$pids\" ] && busy=\"$busy $port\"; "
+        "done; echo $busy"
+    )
+    resp = sandbox.process.exec(script)
+    raw = (resp.result or "").strip()
+    if not raw:
+        return []
+    return [int(p) for p in raw.split()]
+
+
 def _stop_services(sandbox) -> None:
     """Kill any manager/executor processes started by this orchestrator."""
     print("🧹 Stopping manager + executor processes...")
+    port_list = " ".join(str(p) for p in SERVICE_PORTS)
     sandbox.process.exec(
-        # Kill by the wrapper env var (set on the nohup wrapper process)
-        "pkill -f 'DSGYM_EXECUTOR_WORKER' || true; "
-        # Kill by the script names
-        "pkill -f 'dsgym_executor_' || true; "
-        "pkill -f 'executors/manager/main.py' || true; "
-        "pkill -f 'kaggle_image/main.py' || true; "
-        # Kill anything listening on our ports (handles orphaned processes)
-        "for port in 5000 8432 8433 8434 8435 8436 8437 8438 8439; do "
-        "  pid=$(lsof -ti :$port 2>/dev/null || true); "
-        "  [ -n \"$pid\" ] && kill -9 $pid 2>/dev/null || true; "
+        # Kill using saved pid files, then any child processes.
+        "for f in /tmp/dsgym_manager.pid /tmp/dsgym_executor_*.pid; do "
+        "  [ -f \"$f\" ] || continue; "
+        "  pid=$(cat \"$f\" 2>/dev/null); "
+        "  [ -n \"$pid\" ] && kill -9 \"$pid\" 2>/dev/null || true; "
+        "  [ -n \"$pid\" ] && pkill -9 -P \"$pid\" 2>/dev/null || true; "
+        "done; "
+        # Kill by known process signatures (survives exec/unshare renames).
+        "pkill -9 -f 'unshare --mount bash -c' || true; "
+        "pkill -9 -f '/\\.venv-executor/bin/python3' || true; "
+        "pkill -9 -f '/\\.venv-executor/bin/python main\\.py' || true; "
+        "pkill -9 -f '/\\.venv-manager/bin/python3' || true; "
+        "pkill -9 -f '/\\.venv-manager/bin/python main\\.py' || true; "
+        "pkill -9 -f 'ipykernel_launcher' || true; "
+        "pkill -9 -f 'executors/manager/main.py' || true; "
+        "pkill -9 -f 'container_images/kaggle_image/main.py' || true; "
+        "pkill -9 -f '/tmp/dsgym_executor_' || true; "
+        # Kill anything still listening on our ports.
+        f"for port in {port_list}; do "
+        f"  for pid in $({_pids_on_port}); do "
+        "    [ -n \"$pid\" ] && kill -9 \"$pid\" 2>/dev/null || true; "
+        "  done; "
         "done; "
         "rm -f /tmp/dsgym_executor_*.pid /tmp/dsgym_manager.pid; "
-        "sleep 1"
+        "sleep 2"
     )
+    busy = _ports_in_use(sandbox, SERVICE_PORTS)
+    if busy:
+        print(
+            f"⚠️  Ports still in use after cleanup: {busy}. Retrying force-kill...",
+            file=sys.stderr,
+        )
+        sandbox.process.exec(
+            f"for port in {' '.join(str(p) for p in busy)}; do "
+            f"  for pid in $({_pids_on_port}); do "
+            "    [ -n \"$pid\" ] && kill -9 \"$pid\" 2>/dev/null || true; "
+            "  done; "
+            "done; sleep 1"
+        )
+        busy = _ports_in_use(sandbox, SERVICE_PORTS)
+        if busy:
+            print(
+                f"❌ Could not free ports {busy}. "
+                "Install `lsof` in the sandbox (`--phase bootstrap` on a fresh sandbox) "
+                "or stop the sandbox and re-create.",
+                file=sys.stderr,
+            )
 
 
 # --------------------------------------------------------------------------
@@ -574,6 +675,9 @@ def _validate_dspredict_bootstrap_data(sandbox, repo_dir: str, dataset: str) -> 
     Fails bootstrap (sys.exit) if any competition dir is missing, is a
     .download_failed stub, or has no data files. Matches the paths used by
     dsgym.datasets.loaders.dspredict (e.g. data/data/dspredict-hard/{name}/).
+
+    Uses per-competition checks with short timeouts so a slow volume mount
+    surfaces as a specific competition (or timeout) rather than hanging bootstrap.
     """
     if dataset not in _DSPREDICT_BOOTSTRAP_CONFIG:
         return
@@ -582,6 +686,7 @@ def _validate_dspredict_bootstrap_data(sandbox, repo_dir: str, dataset: str) -> 
     validation_script = f"""\
 import json
 import os
+import subprocess
 import sys
 
 repo_dir = {repo_dir!r}
@@ -589,8 +694,7 @@ dataset = {dataset!r}
 task_json_rel = {task_json_rel!r}
 data_subdir = {data_subdir!r}
 data_root = os.path.join(repo_dir, "data", "data", data_subdir)
-
-SKIP_FILES = {{".gitkeep", ".download_failed"}}
+FIND_TIMEOUT_SEC = 30
 
 
 def competition_dir_name(entry: dict) -> str:
@@ -598,17 +702,35 @@ def competition_dir_name(entry: dict) -> str:
     return path.rstrip("/").split("/")[-1]
 
 
-def has_real_data(comp_dir: str) -> bool:
+def has_real_data(comp_dir: str) -> bool | None:
+    \"\"\"Return True/False, or None if the check timed out.\"\"\"
     if not os.path.isdir(comp_dir):
         return False
-    for dirpath, _, filenames in os.walk(comp_dir):
-        depth = dirpath[len(comp_dir) :].count(os.sep)
-        if depth >= 2:
-            continue
-        for name in filenames:
-            if name not in SKIP_FILES:
-                return True
-    return False
+    try:
+        proc = subprocess.run(
+            [
+                "find",
+                comp_dir,
+                "-maxdepth",
+                "2",
+                "-type",
+                "f",
+                "!",
+                "-name",
+                ".gitkeep",
+                "!",
+                "-name",
+                ".download_failed",
+                "-print",
+                "-quit",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=FIND_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
 def load_competition_names() -> list[str]:
@@ -624,11 +746,6 @@ def load_competition_names() -> list[str]:
             if os.path.isdir(os.path.join(data_root, name))
         )
     print(f"❌ Task list not found: {{task_json}}", file=sys.stderr)
-    print(
-        "   For dspredict-sampled, create data/task/dspredict/dspredict_sampled.json "
-        "or ensure data/data/dspredict-sampled/ contains competition dirs.",
-        file=sys.stderr,
-    )
     sys.exit(1)
 
 
@@ -636,23 +753,29 @@ if not os.path.isdir(data_root):
     print(f"❌ Competition data root missing: {{data_root}}", file=sys.stderr)
     sys.exit(1)
 
+competition_names = load_competition_names()
 missing: list[str] = []
 stub_only: list[str] = []
 empty: list[str] = []
+timed_out: list[str] = []
 
-for name in load_competition_names():
+for i, name in enumerate(competition_names, 1):
     comp_dir = os.path.join(data_root, name)
+    print(f"   [{{i}}/{{len(competition_names)}}] {{name}}...", flush=True)
     if not os.path.isdir(comp_dir):
         missing.append(name)
-    elif os.path.isfile(os.path.join(comp_dir, ".download_failed")) and not has_real_data(comp_dir):
+        continue
+    has_data = has_real_data(comp_dir)
+    if has_data is None:
+        timed_out.append(name)
+    elif os.path.isfile(os.path.join(comp_dir, ".download_failed")) and not has_data:
         stub_only.append(name)
-    elif not has_real_data(comp_dir):
+    elif not has_data:
         empty.append(name)
 
-problems = missing + stub_only + empty
+problems = missing + stub_only + empty + timed_out
 if not problems:
-    total = len(load_competition_names())
-    print(f"✅ Competition data validated: {{total}} competitions under {{data_root}}")
+    print(f"✅ Competition data validated: {{len(competition_names)}} competitions under {{data_root}}")
     sys.exit(0)
 
 print(f"❌ Bootstrap data validation failed for {{dataset}} (expected under {{data_root}}):", file=sys.stderr)
@@ -662,25 +785,37 @@ if stub_only:
     print(f"   Stub only (.download_failed, {{len(stub_only)}}): {{', '.join(stub_only[:10])}}{{'...' if len(stub_only) > 10 else ''}}", file=sys.stderr)
 if empty:
     print(f"   Empty dirs ({{len(empty)}}): {{', '.join(empty[:10])}}{{'...' if len(empty) > 10 else ''}}", file=sys.stderr)
-print(
-    "   Remove bad dirs on the volume (dsgym-kaggle-data) or re-run bootstrap "
-    "after a fresh Kaggle download.",
-    file=sys.stderr,
-)
+if timed_out:
+    print(f"   Check timed out ({{len(timed_out)}}): {{', '.join(timed_out[:10])}}{{'...' if len(timed_out) > 10 else ''}}", file=sys.stderr)
+    print(
+        "   Slow volume I/O or very large competition dirs can cause this — "
+        "not necessarily missing data.",
+        file=sys.stderr,
+    )
 sys.exit(1)
 """
     sandbox.fs.upload_file(validation_script.encode("utf-8"), "/tmp/dsgym_validate_data.py")
     print(f"🔎 Validating competition data for {dataset} under {repo_dir}/data/data/...")
-    resp = sandbox.process.exec(
-        f"python3 /tmp/dsgym_validate_data.py",
-        cwd=repo_dir,
-        timeout=120,
-    )
+    try:
+        resp = sandbox.process.exec(
+            "python3 /tmp/dsgym_validate_data.py",
+            cwd=repo_dir,
+            timeout=3600,
+        )
+    except Exception as e:
+        err = str(e)
+        if "timeout" in err.lower():
+            print(
+                "❌ Data validation timed out before completing all checks.\n"
+                "   This is an infrastructure/performance issue, not proof that data is missing.\n"
+                "   Re-run bootstrap to stream per-competition progress, or inspect manually:\n"
+                f"     orchestrate.py --phase exec --command 'ls {repo_dir}/data/data/{data_subdir} | head'",
+                file=sys.stderr,
+            )
+        raise
     if resp.result:
         print(resp.result.rstrip())
     if resp.exit_code != 0:
-        if resp.result is None and resp.exit_code != 0:
-            print(f"❌ Data validation script failed (exit {resp.exit_code})", file=sys.stderr)
         sys.exit(1)
 
 
@@ -706,12 +841,9 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
         run(sandbox, "curl -LsSf https://astral.sh/uv/install.sh | sh")
     run(sandbox, "$HOME/.local/bin/uv sync", cwd=repo_dir, timeout=900)
 
-    # Restore evaluation_results from the persistent volume if available
-    vol_results = f"{KAGGLE_DATA_VOLUME_MOUNT}/evaluation_results"
-    vol_check = sandbox.process.exec(f"test -d {vol_results} && test -n \"$(ls -A {vol_results} 2>/dev/null)\" && echo 'has_results'")
-    if vol_check.exit_code == 0 and "has_results" in (vol_check.result or ""):
-        print(f"💾 Restoring evaluation_results from volume '{KAGGLE_DATA_VOLUME_NAME}'...")
-        run(sandbox, f"mkdir -p {repo_dir}/evaluation_results && cp -a {vol_results}/* {repo_dir}/evaluation_results/", check=False)
+    # Fresh output dir for this sandbox run. Previous results live on the volume
+    # (synced by fetch/auto-fetch) and are not needed before --phase run.
+    run(sandbox, f"mkdir -p {repo_dir}/evaluation_results", check=False)
 
     _ensure_system_packages(sandbox)
     _install_manager_deps(sandbox, repo_dir)
@@ -736,57 +868,32 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
         Path(tmp_path).unlink(missing_ok=True)
     run(sandbox, "mkdir -p ~/.kaggle && mv /tmp/kaggle_access_token ~/.kaggle/access_token && chmod 600 ~/.kaggle/access_token")
 
-    # ── Kaggle data: use persistent volume if available ──────────────────────
+    # ── Kaggle data: always download into sandbox local disk ─────────────────
+    # Do not symlink from the persistent volume — partial/stub caches and large
+    # volume copies have caused missing competition data. The volume is kept for
+    # evaluation_results backup only (see fetch / auto-fetch).
     data_base = f"{repo_dir}/data/data"
-    volume_data_dir = f"{KAGGLE_DATA_VOLUME_MOUNT}/dspredict"
-    volume_sampled_dir = f"{KAGGLE_DATA_VOLUME_MOUNT}/dspredict-sampled"
+    run(sandbox, f"mkdir -p {data_base}")
 
-    # Check if the volume already has data from a previous sandbox
-    volume_check = sandbox.process.exec(f"test -d {volume_data_dir} && test -n \"$(ls -A {volume_data_dir} 2>/dev/null)\" && echo 'has_data'")
-
-    if volume_check.exit_code == 0 and "has_data" in (volume_check.result or ""):
-        print(f"💾 Found existing Kaggle data on volume '{KAGGLE_DATA_VOLUME_NAME}' — skipping download.")
-        # Symlink the volume dirs into the repo's data/data/
-        run(sandbox, f"mkdir -p {data_base}")
-        for name, target in [("dspredict", volume_data_dir), ("dspredict-sampled", volume_sampled_dir)]:
-            repo_path = f"{data_base}/{name}"
-            run(sandbox, f"rm -rf {repo_path} && ln -s {target} {repo_path}", check=False)
-        # Also symlink split dirs
-        for split in ("dspredict-hard", "dspredict-easy"):
-            split_path = f"{data_base}/{split}"
-            run(sandbox, f"rm -rf {split_path} && ln -s {volume_data_dir} {split_path}", check=False)
-    else:
-        print(f"📭 No existing data on volume — downloading from Kaggle (this takes 10-30 min)...")
-        download_script = {
-            "dspredict-sampled": "download_dspredict_data.sh",
-            "dspredict-hard": "download_dspredict_data_full.sh",
-            "dspredict-easy": "download_dspredict_data_full.sh",
-        }[args.dataset]
-        run(sandbox, f"PATH=$HOME/.local/bin:$PATH $HOME/.local/bin/uv run kaggle --version", cwd=repo_dir)
-        run(sandbox, (
-            f"PATH=$HOME/.local/bin:$PATH "
-            f"bash {download_script}"
-        ), cwd=repo_dir, timeout=3600)
-
-        # Copy downloaded data to the volume for future sandboxes
-        print(f"💾 Copying Kaggle data to volume '{KAGGLE_DATA_VOLUME_NAME}' for future use...")
-        run(sandbox, f"mkdir -p {KAGGLE_DATA_VOLUME_MOUNT}", check=False)
-        if sandbox.process.exec(f"test -d {data_base}/dspredict").exit_code == 0:
-            run(sandbox, f"cp -a {data_base}/dspredict {volume_data_dir}", check=False, timeout=3600)
-        if sandbox.process.exec(f"test -d {data_base}/dspredict-sampled").exit_code == 0:
-            run(sandbox, f"cp -a {data_base}/dspredict-sampled {volume_sampled_dir}", check=False, timeout=3600)
+    download_script = "download_dspredict_data_full.sh"
+    print(f"📥 Downloading Kaggle competition data via {download_script} (10–30 min)...")
+    run(sandbox, f"PATH=$HOME/.local/bin:$PATH $HOME/.local/bin/uv run kaggle --version", cwd=repo_dir)
+    run(sandbox, (
+        f"PATH=$HOME/.local/bin:$PATH "
+        f"bash {download_script}"
+    ), cwd=repo_dir, timeout=3600)
 
     # ── Post-download data setup ────────────────────────────────────────────
     # Clean up empty dirs and 0-byte zips from failed downloads
     run(sandbox, (
-        f"find {data_base}/dspredict {data_base}/dspredict-sampled -name '*.zip' -size 0 -delete 2>/dev/null; "
-        f"find {data_base}/dspredict {data_base}/dspredict-sampled -maxdepth 1 -type d -empty -exec rmdir {{}} + 2>/dev/null; "
+        f"find {data_base}/dspredict -name '*.zip' -size 0 -delete 2>/dev/null; "
+        f"find {data_base}/dspredict -maxdepth 1 -type d -empty -exec rmdir {{}} + 2>/dev/null; "
         f"echo 'Cleaned empty zips and dirs'"
     ), check=False)
 
-    # Replace split dirs with symlinks to dspredict/
+    # Replace split dirs with symlinks to dspredict/ (no separate dspredict-sampled download)
     run(sandbox, f"mkdir -p {data_base}/dspredict", check=False)
-    for split in ("dspredict-hard", "dspredict-easy"):
+    for split in ("dspredict-sampled", "dspredict-hard", "dspredict-easy"):
         split_path = f"{data_base}/{split}"
         run(sandbox, f"rm -rf {split_path} && ln -s {data_base}/dspredict {split_path}", check=False)
 
@@ -807,6 +914,10 @@ def phase_launch(sandbox, state: dict, args) -> dict:
 
     # Clean up any stale processes from previous launches.
     _stop_services(sandbox)
+    busy = _ports_in_use(sandbox, SERVICE_PORTS[: 1 + n])
+    if busy:
+        print(f"❌ Cannot launch: port(s) {busy} still in use after cleanup.", file=sys.stderr)
+        sys.exit(1)
 
     # Ensure the data and submission directories exist.
     run(sandbox, f"mkdir -p {repo_dir}/data/data {repo_dir}/submissions")
@@ -844,10 +955,11 @@ def phase_launch(sandbox, state: dict, args) -> dict:
         f"PORT={MANAGER_PORT} "
         f"CONTAINER_CONFIG_PATH={shlex.quote(config_path)} "
         f"ALLOCATION_TIMEOUT={args.allocation_timeout} "
-        f"nohup {shlex.quote(manager_venv_python)} main.py > /tmp/dsgym_manager.log 2>&1 &"
+        f"nohup {shlex.quote(manager_venv_python)} main.py > /tmp/dsgym_manager.log 2>&1 & "
+        f"echo $! > /tmp/dsgym_manager.pid"
     )
     run(sandbox, manager_cmd, check=False)
-    run(sandbox, "sleep 2 && echo $! > /tmp/dsgym_manager.pid")
+    run(sandbox, "sleep 2")
 
     _wait_for_manager(sandbox)
 
@@ -883,8 +995,12 @@ def phase_launch(sandbox, state: dict, args) -> dict:
         )
         sandbox.fs.upload_file(wrapper_script.encode("utf-8"), wrapper_path)
         run(sandbox, f"chmod +x {wrapper_path}")
-        run(sandbox, f"DSGYM_EXECUTOR_WORKER={i} nohup bash {wrapper_path} > {log_path} 2>&1 &", check=False)
-        run(sandbox, f"echo $! > {pid_path}")
+        run(
+            sandbox,
+            f"DSGYM_EXECUTOR_WORKER={i} nohup bash {wrapper_path} > {log_path} 2>&1 & "
+            f"echo $! > {pid_path}",
+            check=False,
+        )
         # Brief pause for the log file to be created and any immediate startup errors to be written.
         time.sleep(1)
         if sandbox.process.exec(f"test -f {log_path}").exit_code != 0:
@@ -920,9 +1036,33 @@ def phase_run(sandbox, state: dict, args) -> dict:
     repo_dir = get_repo_dir(sandbox, state, args)
     max_workers = args.max_workers or args.num_executors or state.get("num_executors", 4)
 
-    # OPENAI_API_KEY was injected as a sandbox-level env var at `create` time
-    # (see phase_create), so it's already in this shell's environment here —
-    # no need to embed the raw key in this command string.
+    if args.backend == "gateway":
+        credential_check = sandbox.process.exec(
+            'test -n "$AI_CODING_GATEWAY_API_KEY" && '
+            'test -n "$AI_CODING_GATEWAY_PROJECT"'
+        )
+        if credential_check.exit_code != 0:
+            print(
+                "❌ Gateway credentials are not present in this sandbox. "
+                "Create it with `--phase create --backend gateway` after exporting "
+                "AI_CODING_GATEWAY_API_KEY and AI_CODING_GATEWAY_PROJECT. "
+                "Credentials cannot be added to an already-created sandbox by --phase run.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    elif (
+        args.backend == "litellm"
+        and sandbox.process.exec('test -n "$OPENAI_API_KEY"').exit_code != 0
+    ):
+        print(
+            "❌ OPENAI_API_KEY is not present in this sandbox. "
+            "Create it with OPENAI_API_KEY exported, or pass --openai-api-key.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Credentials are injected as sandbox-level environment variables at
+    # creation time, so they never appear in the command string.
     eval_cmd_parts = [
         f"cd {shlex.quote(repo_dir)} &&",
         "$HOME/.local/bin/uv run dsgym eval",
@@ -1650,7 +1790,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Repo
     p.add_argument("--repo-url", default="https://github.com/Adamwewe/DSGym.git")
-    p.add_argument("--branch", default="feature/daytona-fetch-fix", #default="feature/scaffolding-with-cuda",
+    p.add_argument("--branch", default="feature/ai-gateway", #default="feature/scaffolding-with-cuda",
                    help="Git branch to clone into the sandbox (default: feature/scaffolding-with-cuda or feature/daytona-added).")
     p.add_argument("--github-user", default=os.environ.get("GITHUB_USER"))
     p.add_argument("--github-token", default=os.environ.get("GITHUB_TOKEN"),
@@ -1680,8 +1820,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "the full ~53-competition set and need a much bigger --disk.")
     p.add_argument("--model", default="gpt-4o")
     p.add_argument("--backend", default="litellm",
-                   choices=["litellm", "vllm", "sglang"],
-                   help="Inference backend passed through to dsgym eval (default: litellm).")
+                   choices=["gateway", "litellm", "vllm", "sglang"],
+                   help="Inference backend passed through to dsgym eval (default: litellm). "
+                        "Select the same backend during --phase create so its credentials "
+                        "are provisioned in the sandbox.")
     p.add_argument("--limit", type=int, default=1, help="Number of samples to evaluate (adjustable)")
     p.add_argument("--max-workers", type=int, default=None,
                    help="Defaults to --num-executors so workers == executor pool size")

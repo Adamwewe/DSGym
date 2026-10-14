@@ -324,18 +324,17 @@ Use a different model or backend:
   to that file, and downloads the Kaggle competition data via the appropriate
   `download_*.sh` script.
 
-  **Kaggle data is stored on a persistent Daytona volume**
-  (`dsgym-kaggle-data`) mounted at `/mnt/kaggle-data`. The first `bootstrap`
-  downloads all competitions (10–30 min) and copies them to the volume.
-  Subsequent sandboxes find the data on the volume and skip the download
-  entirely — just symlinks into the repo's `data/data/` directory.
+  Kaggle data is downloaded to the sandbox's local disk under
+  `data/data/`. The default `dspredict-sampled` dataset uses the smaller
+  sampled downloader; `dspredict-hard` and `dspredict-easy` download the full
+  competition set and may require a larger `--disk` than the 100 GiB default.
+  Data is not cached on the persistent results volume, so a new sandbox
+  downloads its selected dataset again.
 
   **The volume also stores `evaluation_results/`** — every `fetch` and
   `auto-fetch` copies results to the volume as a backup, so they persist
   across sandbox deletions. Bootstrap does not restore them into the sandbox;
   experiments start with a fresh `evaluation_results/` directory.
-
-  If the volume is missing or empty, `bootstrap` downloads from scratch.
 
   **Kaggle download can take 10–30 minutes** (30+ competitions). The
   orchestrator waits for the script to finish before printing any output, so
@@ -347,8 +346,9 @@ Use a different model or backend:
   .venv/bin/python orchestrate.py --phase exec --command "ls /root/DSGym/data/data/dspredict-sampled/"
   ```
 
-  The download timeout is 1 hour. Re-running `bootstrap` is safe — the script
-  skips competitions that are already downloaded.
+  The download timeout is 1 hour. Re-running `bootstrap` is safe — populated
+  competitions are skipped, and partial files from a failed ZIP extraction
+  are removed so the retained archive can be retried.
 
 - **launch** — generates a `daytona_container_config.json` pointing each
   worker at a distinct `localhost` port, starts the manager process on port

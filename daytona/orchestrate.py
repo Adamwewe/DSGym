@@ -875,7 +875,22 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
     data_base = f"{repo_dir}/data/data"
     run(sandbox, f"mkdir -p {data_base}")
 
-    download_script = "download_dspredict_data_full.sh"
+    download_script = (
+        "download_dspredict_data.sh"
+        if args.dataset == "dspredict-sampled"
+        else "download_dspredict_data_full.sh"
+    )
+    download_dir = (
+        f"{data_base}/dspredict-sampled"
+        if args.dataset == "dspredict-sampled"
+        else f"{data_base}/dspredict"
+    )
+    run(
+        sandbox,
+        f"if [ -L {shlex.quote(download_dir)} ]; then "
+        f"rm {shlex.quote(download_dir)}; fi; "
+        f"mkdir -p {shlex.quote(download_dir)}",
+    )
     print(f"📥 Downloading Kaggle competition data via {download_script} (10–30 min)...")
     run(sandbox, f"PATH=$HOME/.local/bin:$PATH $HOME/.local/bin/uv run kaggle --version", cwd=repo_dir)
     run(sandbox, (
@@ -884,18 +899,21 @@ def phase_bootstrap(sandbox, state: dict, args) -> dict:
     ), cwd=repo_dir, timeout=3600)
 
     # ── Post-download data setup ────────────────────────────────────────────
-    # Clean up empty dirs and 0-byte zips from failed downloads
-    run(sandbox, (
-        f"find {data_base}/dspredict -name '*.zip' -size 0 -delete 2>/dev/null; "
-        f"find {data_base}/dspredict -maxdepth 1 -type d -empty -exec rmdir {{}} + 2>/dev/null; "
-        f"echo 'Cleaned empty zips and dirs'"
-    ), check=False)
-
-    # Replace split dirs with symlinks to dspredict/ (no separate dspredict-sampled download)
-    run(sandbox, f"mkdir -p {data_base}/dspredict", check=False)
-    for split in ("dspredict-sampled", "dspredict-hard", "dspredict-easy"):
+    # Each downloaded collection is the source for the split directories.
+    source_dir = download_dir
+    split_dirs = (
+        ("dspredict", "dspredict-hard", "dspredict-easy")
+        if args.dataset == "dspredict-sampled"
+        else ("dspredict-sampled", "dspredict-hard", "dspredict-easy")
+    )
+    for split in split_dirs:
         split_path = f"{data_base}/{split}"
-        run(sandbox, f"rm -rf {split_path} && ln -s {data_base}/dspredict {split_path}", check=False)
+        run(
+            sandbox,
+            f"rm -rf {shlex.quote(split_path)} && "
+            f"ln -s {shlex.quote(source_dir)} {shlex.quote(split_path)}",
+            check=False,
+        )
 
     _validate_dspredict_bootstrap_data(sandbox, repo_dir, args.dataset)
 

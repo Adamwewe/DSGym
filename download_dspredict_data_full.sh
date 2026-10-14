@@ -12,13 +12,14 @@
 #       "I Understand and Accept" if a download fails with a 403 error.
 
 set -euo pipefail
+shopt -s nullglob
 
 DEST="$(dirname "$0")/data/data/dspredict"
 mkdir -p "$DEST"
 
-# Check kaggle CLI is available
-if ! command -v uv run kaggle &>/dev/null; then
-    echo "[ERROR] kaggle CLI not found. Install it with: pip install kaggle"
+# Check uv is available to run the Kaggle CLI
+if ! command -v uv &>/dev/null; then
+    echo "[ERROR] uv not found. Install uv before running the Kaggle downloader."
     exit 1
 fi
 
@@ -27,27 +28,45 @@ dl() {
     local dir="$DEST/$name"
     mkdir -p "$dir"
 
-    # Skip if already populated (has any files excluding .gitkeep)
+    # Skip only populated directories without a leftover archive from a failed extraction.
     local file_count
-    file_count=$(find "$dir" -maxdepth 2 -type f ! -name '.gitkeep' | wc -l | tr -d ' ')
-    if [[ "$file_count" -gt 0 ]]; then
+    file_count=$(
+        find "$dir" -maxdepth 2 -type f \
+            ! -name '.gitkeep' ! -name '.download_failed' ! -name '*.zip' |
+            wc -l | tr -d ' '
+    )
+    local archives=("$dir"/*.zip)
+    if [[ "$file_count" -gt 0 && "${#archives[@]}" -eq 0 ]]; then
         echo "[SKIP] $name (already has $file_count file(s))"
         return
     fi
 
-    echo "[DL]   $name"
-    if ! uv run kaggle competitions download -c "$name" -p "$dir" --quiet 2>&1; then
-        echo "[WARN] $name — download failed (check competition rules acceptance or availability)"
-        return
+    if [[ "${#archives[@]}" -eq 0 ]]; then
+        echo "[DL]   $name"
+        if ! uv run kaggle competitions download -c "$name" -p "$dir" --quiet 2>&1; then
+            echo "[WARN] $name — download failed (check competition rules acceptance or availability)"
+            return
+        fi
+        archives=("$dir"/*.zip)
     fi
 
-    # Extract any zip files produced by the download
-    for zip in "$dir"/*.zip; do
-        [[ -f "$zip" ]] || continue
+    if [[ "${#archives[@]}" -eq 0 ]]; then
+        echo "[ERROR] $name — Kaggle download produced no ZIP archive" >&2
+        return 1
+    fi
+
+    # Remove files left by a previously interrupted extraction before retrying.
+    find "$dir" -mindepth 1 ! -name '*.zip' -exec rm -rf -- {} +
+    for zip in "${archives[@]}"; do
         echo "[EXT]  $(basename "$zip")"
-        unzip -q -o "$zip" -d "$dir"
-        rm "$zip"
+        if ! unzip -tq "$zip" || ! unzip -q -o "$zip" -d "$dir" </dev/null; then
+            echo "[ERROR] $name — extraction failed; check free disk space and archive integrity." >&2
+            df -h "$dir" >&2 || true
+            find "$dir" -mindepth 1 ! -name '*.zip' -exec rm -rf -- {} +
+            return 1
+        fi
     done
+    rm -f -- "${archives[@]}"
 
     local final_count
     final_count=$(find "$dir" -maxdepth 2 -type f | wc -l | tr -d ' ')
